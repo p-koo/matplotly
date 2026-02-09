@@ -4,6 +4,7 @@
 [![Python versions](https://img.shields.io/pypi/pyversions/matplotly.svg)](https://pypi.org/project/matplotly/)
 [![License](https://img.shields.io/pypi/l/matplotly.svg)](https://github.com/p-koo/matplotly/blob/main/LICENSE)
 [![Docs](https://readthedocs.org/projects/matplotly/badge/?version=latest)](https://matplotly.readthedocs.io)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/p-koo/matplotly/blob/main/examples/matplotly_demo.ipynb)
 
 **Jupyter-native interactive matplotlib figure editor.**
 
