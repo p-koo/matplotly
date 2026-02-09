@@ -3,108 +3,21 @@ from __future__ import annotations
 
 import ipywidgets as widgets
 import matplotlib
-from matplotlib.colors import ListedColormap, to_hex, to_rgb
+from matplotlib.colors import to_hex
 
 from .._commands import BatchCommand, Command
 from .._types import ArtistGroup, PlotType
 from ._base import ArtistPanel
-
-_COLORMAPS = [
-    # Qualitative
-    "tab10", "tab20", "Set1", "Set2", "Set3", "Paired",
-    "Dark2", "Accent", "Pastel1", "Pastel2",
-    # Diverging
-    "bwr", "coolwarm", "RdBu", "RdYlBu", "RdYlGn",
-    "PiYG", "PRGn", "seismic",
-    # Sequential
-    "viridis", "plasma", "inferno", "magma", "cividis",
-    "Blues", "Reds", "Greens", "Oranges", "Purples",
-    "YlOrRd", "YlGnBu", "BuGn",
-    # Cyclic
-    "twilight", "hsv",
-]
-
-_DW = "48px"    # uniform description_width
-_NW = "50px"    # uniform number-edit width
-_SN = {"description_width": _DW}
-
-
-def _slider_num(slider):
-    """Slider (no readout) + linked number edit box (2 dp)."""
-    slider.readout = False
-    slider.style = {"description_width": _DW}
-    num = widgets.BoundedFloatText(
-        value=round(slider.value, 2), step=slider.step,
-        min=slider.min, max=slider.max,
-        layout=widgets.Layout(width=_NW))
-    widgets.link((slider, "value"), (num, "value"))
-    return widgets.HBox([slider, num])
-
-
-def _cmap_color(cmap, i, n):
-    """Sample color i of n from a colormap.
-
-    For small qualitative colormaps (tab10, Set1, etc. with N <= 20), returns
-    sequential discrete colors (1st, 2nd, 3rd...).  For everything else
-    (continuous or large-N listed colormaps like viridis with N=256),
-    interpolates evenly across the full [0,1] range.
-    """
-    if isinstance(cmap, ListedColormap) and cmap.N <= 20:
-        return cmap(i % cmap.N)
-    return cmap(i / max(n - 1, 1))
-
-
-def _get_palette_colors(cmap_name, n=10):
-    """Get n hex colors from a colormap."""
-    try:
-        cmap = matplotlib.colormaps.get_cmap(cmap_name)
-    except Exception:
-        cmap = matplotlib.colormaps.get_cmap("tab10")
-    return [to_hex(_cmap_color(cmap, i, n)) for i in range(n)]
-
-
-def _make_color_dot(hex_color):
-    return (f'<div style="width:14px;height:14px;background:{hex_color};'
-            f'border:1px solid #666;border-radius:2px;flex-shrink:0"></div>')
-
-
-def _refresh_legend(ax):
-    """Recreate the legend so it reflects current artist properties."""
-    if ax is None:
-        return
-    leg = ax.get_legend()
-    if leg is None:
-        return
-    handles, labels = ax.get_legend_handles_labels()
-    if not handles:
-        return
-    props = {}
-    try:
-        props['frameon'] = leg.get_frame().get_visible()
-    except Exception:
-        pass
-    try:
-        props['fontsize'] = leg._fontsize
-    except Exception:
-        pass
-    try:
-        props['ncol'] = getattr(leg, '_ncols', 1)
-    except Exception:
-        pass
-    try:
-        if hasattr(leg, '_bbox_to_anchor') and leg._bbox_to_anchor is not None:
-            inv = ax.transAxes.inverted()
-            bx, by = inv.transform(
-                (leg._bbox_to_anchor.x0, leg._bbox_to_anchor.y0))
-            props['bbox_to_anchor'] = (round(bx, 3), round(by, 3))
-        props['loc'] = leg._loc
-    except Exception:
-        pass
-    ax.legend(handles, labels, **props)
+from ._color_utils import (
+    _COLORMAPS, _DW, _NW, _SN,
+    _cmap_color, _get_palette_colors, _make_color_dot,
+    _refresh_legend, _slider_num,
+)
 
 
 class LinePanel(ArtistPanel):
     _plot_number: int = 0  # set by _api.py before build()
+    _on_label_changed = None  # callback set by _api.py for legend label sync
 
     def build(self) -> widgets.Widget:
         line = self._group.artists[0]
@@ -182,6 +95,8 @@ class LinePanel(ArtistPanel):
             self._toggle_btn.icon = icon
             self._toggle_btn.description = f"  {pfx}{new_label}"
             _refresh_legend(l.axes)
+            if self._on_label_changed is not None:
+                self._on_label_changed()
             self._canvas.force_redraw()
         name_field.observe(_on_name, names="value")
         controls.append(name_field)
@@ -304,33 +219,42 @@ class LinePanel(ArtistPanel):
             return btns
 
         colors_10 = _get_palette_colors("tab10", 10)
-        colors_20 = _get_palette_colors("tab10", 20)
         swatch_buttons = _make_swatches(colors_10)
+        colors_20 = _get_palette_colors("tab10", 20)
         extra_buttons = _make_swatches(colors_20[10:])
 
-        # CSS for smaller icons inside tool buttons
+        # CSS: match swatch size, nudge FA icon up to center it
         _icon_css = widgets.HTML(
             '<style>'
-            '.pb-sm-icon .fa { font-size: 8px !important; }'
+            '.pb-swatch-btn button {'
+            '  padding:0 !important;'
+            '  min-width:0 !important;'
+            '  overflow:hidden !important;'
+            '}'
+            '.pb-swatch-btn .fa {'
+            '  font-size:9px !important;'
+            '  position:relative !important;'
+            '  top:-7px !important;'
+            '}'
             '</style>')
 
-        # Expand / collapse button
+        # Expand / collapse button (same size as swatch: 18x16)
         expand_btn = widgets.Button(
             icon="plus", tooltip="Show more colors",
-            layout=widgets.Layout(width="24px", height="18px",
-                                  padding="0", min_width="24px",
-                                  margin="0 1px"))
+            layout=widgets.Layout(width="18px", height="16px",
+                                  padding="0", min_width="18px",
+                                  margin="1px"))
         expand_btn.style.button_color = "#e0e0e0"
-        expand_btn.add_class("pb-sm-icon")
+        expand_btn.add_class("pb-swatch-btn")
 
-        # Palette icon button — one click opens OS color dialog via JS
+        # Palette icon button (same size as swatch: 18x16)
         palette_btn = widgets.Button(
-            icon="tint", tooltip="Custom color...",
-            layout=widgets.Layout(width="24px", height="18px",
-                                  padding="0", min_width="24px",
-                                  margin="0 1px"))
+            icon="paint-brush", tooltip="Custom color...",
+            layout=widgets.Layout(width="18px", height="16px",
+                                  padding="0", min_width="18px",
+                                  margin="1px"))
         palette_btn.style.button_color = "#e8e8e8"
-        palette_btn.add_class("pb-sm-icon")
+        palette_btn.add_class("pb-swatch-btn")
 
         # Hidden color picker (programmatically opened by JS click)
         _picker_cls = f"pb-picker-{id(line)}"
@@ -401,11 +325,22 @@ class LinePanel(ArtistPanel):
 
         # Expand / collapse extra row
         def _on_expand(b):
+            cname = _cmap_name[0]
             if extra_row.layout.display == 'none':
+                # Expanding: switch row 1 to first 10 of 20-point sampling
+                c20 = _get_palette_colors(cname, 20)
+                for i, btn in enumerate(swatch_buttons):
+                    btn.style.button_color = c20[i]
+                for i, btn in enumerate(extra_buttons):
+                    btn.style.button_color = c20[10 + i]
                 extra_row.layout.display = ''
                 expand_btn.icon = 'minus'
                 expand_btn.tooltip = 'Show fewer colors'
             else:
+                # Collapsing: switch row 1 back to 10-point full-range sampling
+                c10 = _get_palette_colors(cname, 10)
+                for i, btn in enumerate(swatch_buttons):
+                    btn.style.button_color = c10[i]
                 extra_row.layout.display = 'none'
                 expand_btn.icon = 'plus'
                 expand_btn.tooltip = 'Show more colors'
@@ -432,12 +367,21 @@ class LinePanel(ArtistPanel):
 
         def _ext_update_palette(cmap_name):
             _cmap_name[0] = cmap_name
-            c10 = _get_palette_colors(cmap_name, 10)
-            c20 = _get_palette_colors(cmap_name, 20)
-            for i, btn in enumerate(swatch_buttons):
-                btn.style.button_color = c10[i]
-            for i, btn in enumerate(extra_buttons):
-                btn.style.button_color = c20[10 + i]
+            is_expanded = extra_row.layout.display != 'none'
+            if is_expanded:
+                c20 = _get_palette_colors(cmap_name, 20)
+                for i, btn in enumerate(swatch_buttons):
+                    btn.style.button_color = c20[i]
+                for i, btn in enumerate(extra_buttons):
+                    btn.style.button_color = c20[10 + i]
+            else:
+                c10 = _get_palette_colors(cmap_name, 10)
+                for i, btn in enumerate(swatch_buttons):
+                    btn.style.button_color = c10[i]
+                # Pre-compute row 2 for when it gets expanded
+                c20 = _get_palette_colors(cmap_name, 20)
+                for i, btn in enumerate(extra_buttons):
+                    btn.style.button_color = c20[10 + i]
         self._update_palette = _ext_update_palette
 
         return widgets.VBox([color_row, palette_panel])
@@ -451,8 +395,15 @@ class ColormapPanel:
     """
 
     def __init__(self, groups: list[ArtistGroup], stack, canvas,
-                 line_panels: list[LinePanel] | None = None):
-        self._line_groups = [g for g in groups if g.plot_type == PlotType.LINE]
+                 line_panels: list | None = None):
+        self._color_groups = [g for g in groups
+                              if g.plot_type in (PlotType.LINE, PlotType.SCATTER,
+                                                 PlotType.HISTOGRAM,
+                                                 PlotType.BAR,
+                                                 PlotType.GROUPED_BAR,
+                                                 PlotType.BOXPLOT,
+                                                 PlotType.VIOLIN,
+                                                 PlotType.ERRORBAR)]
         self._stack = stack
         self._canvas = canvas
         self._line_panels = line_panels or []
@@ -463,8 +414,8 @@ class ColormapPanel:
         self._do_apply(cmap_name)
 
     def build(self) -> widgets.Widget:
-        if not self._line_groups:
-            return widgets.HTML("<i>No lines to apply colormap to.</i>")
+        if not self._color_groups:
+            return widgets.HTML("<i>No series to apply colormap to.</i>")
 
         # --- Compact header: name + large swatches on one row, Change below ---
         self._name_html = widgets.HTML(
@@ -500,7 +451,7 @@ class ColormapPanel:
             self._row_btns.append(btn)
 
             # Swatch gradient bar (HTML) + transparent overlay button
-            swatch_html = self._row_swatch(name, n=20, size=20, stretch=True)
+            swatch_html = self._row_swatch(name, n=10, size=20, stretch=True)
             swatch_w = widgets.HTML(
                 swatch_html,
                 layout=widgets.Layout(flex='1 1 auto', min_width='0'))
@@ -554,30 +505,156 @@ class ColormapPanel:
         return widgets.VBox([header, self._cmap_list])
 
     def _do_apply(self, cmap_name: str) -> None:
-        """Apply colormap to all lines and update all UI elements."""
+        """Apply colormap to all lines/scatter and update all UI elements."""
         self._selected = cmap_name
         cmap = matplotlib.colormaps.get_cmap(cmap_name)
-        n = len(self._line_groups)
+        n = len(self._color_groups)
         cmds = []
-        for i, group in enumerate(self._line_groups):
-            line = group.artists[0]
+        for i, group in enumerate(self._color_groups):
             new_color = to_hex(_cmap_color(cmap, i, n))
-            try:
-                old_color = to_hex(line.get_color())
-            except Exception:
-                old_color = "#000000"
-            cmds.append(Command(line, "color", old_color, new_color,
-                                description=f"{group.label} color"))
+            if group.plot_type == PlotType.LINE:
+                artist = group.artists[0] if group.artists else None
+                if artist is None:
+                    continue
+                try:
+                    old_color = to_hex(artist.get_color())
+                except Exception:
+                    old_color = "#000000"
+                cmds.append(Command(artist, "color", old_color, new_color,
+                                    description=f"{group.label} color"))
+            elif group.plot_type == PlotType.SCATTER:
+                artist = group.artists[0] if group.artists else None
+                if artist is None:
+                    continue
+                old_fc = artist.get_facecolor().copy()
+                _new = new_color  # capture for closures
+                _old = old_fc
+                _art = artist
+                # Check if edge color should follow face color
+                _panel = (self._line_panels[i]
+                          if i < len(self._line_panels) else None)
+                _sync_edge = (_panel is not None
+                              and hasattr(_panel, '_edge_manual')
+                              and not _panel._edge_manual)
+                old_ec = artist.get_edgecolor().copy() if _sync_edge else None
+                cmds.append(Command(
+                    artist, "facecolor", old_fc, new_color,
+                    apply_fn=lambda _a=_art, _n=_new, _se=_sync_edge: (
+                        _a.set_facecolor(_n),
+                        _a.set_edgecolor(_n) if _se else None),
+                    revert_fn=lambda _a=_art, _o=_old, _se=_sync_edge, _oe=old_ec: (
+                        _a.set_facecolor(_o),
+                        _a.set_edgecolor(_oe) if _se else None),
+                    description=f"{group.label} color"))
+            elif group.plot_type == PlotType.HISTOGRAM:
+                # Apply color to all patches in the histogram
+                if not group.artists:
+                    continue
+                artist = group.artists[0]
+                _patches = group.artists
+                _new = new_color
+                _old_colors = [to_hex(p.get_facecolor()) for p in _patches]
+                def _apply_hist(_ps=_patches, _c=_new):
+                    for p in _ps:
+                        p.set_facecolor(_c)
+                def _revert_hist(_ps=_patches, _oc=_old_colors):
+                    for p, c in zip(_ps, _oc):
+                        p.set_facecolor(c)
+                cmds.append(Command(
+                    artist, "facecolor", _old_colors, new_color,
+                    apply_fn=_apply_hist, revert_fn=_revert_hist,
+                    description=f"{group.label} color"))
+                # Also update the panel's internal color state
+                _panel = (self._line_panels[i]
+                          if i < len(self._line_panels) else None)
+                if _panel is not None and hasattr(_panel, '_color'):
+                    _panel._color = new_color
+            elif group.plot_type in (PlotType.BAR, PlotType.GROUPED_BAR):
+                # Apply color to all patches in the bar group
+                if not group.artists:
+                    continue
+                artist = group.artists[0]
+                _patches = group.artists
+                _new = new_color
+                _old_colors = [to_hex(p.get_facecolor()) for p in _patches]
+                def _apply_bar(_ps=_patches, _c=_new):
+                    for p in _ps:
+                        p.set_facecolor(_c)
+                def _revert_bar(_ps=_patches, _oc=_old_colors):
+                    for p, c in zip(_ps, _oc):
+                        p.set_facecolor(c)
+                cmds.append(Command(
+                    artist, "facecolor", _old_colors, new_color,
+                    apply_fn=_apply_bar, revert_fn=_revert_bar,
+                    description=f"{group.label} color"))
+                _panel = (self._line_panels[i]
+                          if i < len(self._line_panels) else None)
+                if _panel is not None and hasattr(_panel, '_color'):
+                    _panel._color = new_color
+            elif group.plot_type in (PlotType.BOXPLOT, PlotType.VIOLIN):
+                # Apply color to distribution panel (no artist needed —
+                # originals are cleared by _redraw, colours live on panel)
+                _panel = (self._line_panels[i]
+                          if i < len(self._line_panels) else None)
+                if _panel is not None:
+                    _old_bc = getattr(_panel, '_box_color', '#1f77b4')
+                    _new_c = new_color
+                    _p = _panel
+                    def _apply_dist(_p=_p, _c=_new_c):
+                        _p._box_color = _c
+                        _p._violin_color = _c
+                        _p._jitter_color = _c
+                        if hasattr(_p, '_shared_panel') and _p._shared_panel:
+                            _p._shared_panel._redraw()
+                    def _revert_dist(_p=_p, _c=_old_bc):
+                        _p._box_color = _c
+                        _p._violin_color = _c
+                        _p._jitter_color = _c
+                        if hasattr(_p, '_shared_panel') and _p._shared_panel:
+                            _p._shared_panel._redraw()
+                    # Use group.axes as artist placeholder (original
+                    # artists are removed by _redraw).
+                    cmds.append(Command(
+                        group.axes, "color", _old_bc, new_color,
+                        apply_fn=_apply_dist, revert_fn=_revert_dist,
+                        description=f"{group.label} color"))
+            elif group.plot_type == PlotType.ERRORBAR:
+                _panel = (self._line_panels[i]
+                          if i < len(self._line_panels) else None)
+                if _panel is not None:
+                    _old_ec = getattr(_panel, '_bar_color', '#1f77b4')
+                    _new_c = new_color
+                    _p = _panel
+                    def _apply_eb(_p=_p, _c=_new_c):
+                        _p._bar_color = _c
+                        _p._marker_color = _c
+                        _p._line_color = _c
+                        _p._shade_color = _c
+                        _p._redraw()
+                    def _revert_eb(_p=_p, _c=_old_ec):
+                        _p._bar_color = _c
+                        _p._marker_color = _c
+                        _p._line_color = _c
+                        _p._shade_color = _c
+                        _p._redraw()
+                    cmds.append(Command(
+                        group.axes, "color", _old_ec, new_color,
+                        apply_fn=_apply_eb, revert_fn=_revert_eb,
+                        description=f"{group.label} color"))
         if cmds:
             self._stack.execute(BatchCommand(cmds, "Apply colormap"))
-            # Rebuild legends to reflect new colors
-            for ax_set in {g.artists[0].axes for g in self._line_groups}:
+            for ax_set in {g.axes for g in self._color_groups}:
                 _refresh_legend(ax_set)
             self._canvas.redraw()
             for i, panel in enumerate(self._line_panels):
                 if hasattr(panel, "_update_color") and i < n:
                     color = to_hex(_cmap_color(cmap, i, n))
                     panel._update_color(color)
+                    # Sync edge color UI if not manually overridden
+                    if (hasattr(panel, '_edge_manual')
+                            and not panel._edge_manual
+                            and hasattr(panel, '_sync_edge_ui')):
+                        panel._sync_edge_ui(color)
                 if hasattr(panel, "_update_palette"):
                     panel._update_palette(cmap_name)
 

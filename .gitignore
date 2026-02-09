@@ -20,3 +20,9 @@ build/
 
 # OS
 .DS_Store
+
+# Docs
+docs/_build/
+
+# Tools
+.ruff_cache/

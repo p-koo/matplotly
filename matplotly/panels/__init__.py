@@ -6,13 +6,13 @@ from .._renderer import CanvasManager
 from .._types import ArtistGroup, PlotType
 from ._base import ArtistPanel
 from ._bar import BarPanel
-from ._boxplot import BoxplotPanel
+from ._distribution import DistributionPanel
 from ._errorbar import ErrorbarPanel
 from ._fill import FillPanel
+from ._heatmap import HeatmapPanel
 from ._histogram import HistogramPanel
 from ._line import LinePanel
 from ._scatter import ScatterPanel
-from ._violin import ViolinPanel
 
 PANEL_REGISTRY: dict[PlotType, type[ArtistPanel]] = {
     PlotType.LINE: LinePanel,
@@ -20,10 +20,11 @@ PANEL_REGISTRY: dict[PlotType, type[ArtistPanel]] = {
     PlotType.GROUPED_BAR: BarPanel,
     PlotType.SCATTER: ScatterPanel,
     PlotType.HISTOGRAM: HistogramPanel,
-    PlotType.BOXPLOT: BoxplotPanel,
-    PlotType.VIOLIN: ViolinPanel,
+    PlotType.BOXPLOT: DistributionPanel,
+    PlotType.VIOLIN: DistributionPanel,
     PlotType.ERRORBAR: ErrorbarPanel,
     PlotType.FILL_BETWEEN: FillPanel,
+    PlotType.HEATMAP: HeatmapPanel,
 }
 
 

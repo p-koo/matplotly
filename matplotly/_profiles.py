@@ -48,25 +48,30 @@ def snapshot_from_global(global_panel) -> dict:
     data["title_size"] = round(gp._title_size_sl.value, 1)
     data["label_size"] = round(gp._label_size_sl.value, 1)
     data["tick_size"] = round(gp._tick_size_sl.value, 1)
-    # Spines
-    data["spine_top"] = gp._spine_top_cb.value
-    data["spine_right"] = gp._spine_right_cb.value
-    data["spine_bottom"] = gp._spine_bottom_cb.value
-    data["spine_left"] = gp._spine_left_cb.value
-    data["spine_width"] = round(gp._spine_width_sl.value, 1)
-    # Ticks
-    data["tick_direction"] = gp._tick_dir_dd.value
-    data["tick_length"] = round(gp._tick_len_sl.value, 1)
-    data["tick_width"] = round(gp._tick_width_sl.value, 1)
-    # Grid
-    data["grid_on"] = gp._grid_toggle.value
-    data["grid_alpha"] = round(gp._grid_alpha_sl.value, 2)
-    data["grid_width"] = round(gp._grid_width_sl.value, 1)
-    data["grid_style"] = gp._grid_style_dd.value
-    # Legend
-    data["legend_show"] = gp._legend_toggle.value
-    data["legend_frame"] = gp._frame_toggle.value
-    data["legend_fontsize"] = round(gp._legend_fontsize_sl.value, 1)
+    # Spines (may not exist in multi-subplot mode)
+    if hasattr(gp, '_spine_top_cb'):
+        data["spine_top"] = gp._spine_top_cb.value
+        data["spine_right"] = gp._spine_right_cb.value
+        data["spine_bottom"] = gp._spine_bottom_cb.value
+        data["spine_left"] = gp._spine_left_cb.value
+    if hasattr(gp, '_spine_width_sl'):
+        data["spine_width"] = round(gp._spine_width_sl.value, 1)
+    # Ticks (may not exist in multi-subplot mode)
+    if hasattr(gp, '_tick_dir_dd'):
+        data["tick_direction"] = gp._tick_dir_dd.value
+        data["tick_length"] = round(gp._tick_len_sl.value, 1)
+        data["tick_width"] = round(gp._tick_width_sl.value, 1)
+    # Grid (may not exist in multi-subplot mode)
+    if hasattr(gp, '_grid_toggle'):
+        data["grid_on"] = gp._grid_toggle.value
+        data["grid_alpha"] = round(gp._grid_alpha_sl.value, 2)
+        data["grid_width"] = round(gp._grid_width_sl.value, 1)
+        data["grid_style"] = gp._grid_style_dd.value
+    # Legend (may not exist in multi-subplot mode)
+    if hasattr(gp, '_legend_toggle'):
+        data["legend_show"] = gp._legend_toggle.value
+        data["legend_frame"] = gp._frame_toggle.value
+        data["legend_fontsize"] = round(gp._legend_fontsize_sl.value, 1)
     # Colormap
     if gp._cmap_panel is not None:
         data["colormap"] = gp._cmap_panel._selected
@@ -96,39 +101,39 @@ def apply_profile(data: dict, global_panel, canvas) -> None:
             gp._label_size_sl.value = data["label_size"]
         if "tick_size" in data:
             gp._tick_size_sl.value = data["tick_size"]
-        # Spines
-        if "spine_top" in data:
+        # Spines (may not exist in multi-subplot mode)
+        if "spine_top" in data and hasattr(gp, '_spine_top_cb'):
             gp._spine_top_cb.value = data["spine_top"]
-        if "spine_right" in data:
+        if "spine_right" in data and hasattr(gp, '_spine_right_cb'):
             gp._spine_right_cb.value = data["spine_right"]
-        if "spine_bottom" in data:
+        if "spine_bottom" in data and hasattr(gp, '_spine_bottom_cb'):
             gp._spine_bottom_cb.value = data["spine_bottom"]
-        if "spine_left" in data:
+        if "spine_left" in data and hasattr(gp, '_spine_left_cb'):
             gp._spine_left_cb.value = data["spine_left"]
-        if "spine_width" in data:
+        if "spine_width" in data and hasattr(gp, '_spine_width_sl'):
             gp._spine_width_sl.value = data["spine_width"]
-        # Ticks
-        if "tick_direction" in data:
+        # Ticks (may not exist in multi-subplot mode)
+        if "tick_direction" in data and hasattr(gp, '_tick_dir_dd'):
             gp._tick_dir_dd.value = data["tick_direction"]
-        if "tick_length" in data:
+        if "tick_length" in data and hasattr(gp, '_tick_len_sl'):
             gp._tick_len_sl.value = data["tick_length"]
-        if "tick_width" in data:
+        if "tick_width" in data and hasattr(gp, '_tick_width_sl'):
             gp._tick_width_sl.value = data["tick_width"]
-        # Grid
-        if "grid_on" in data:
+        # Grid (may not exist in multi-subplot mode)
+        if "grid_on" in data and hasattr(gp, '_grid_toggle'):
             gp._grid_toggle.value = data["grid_on"]
-        if "grid_alpha" in data:
+        if "grid_alpha" in data and hasattr(gp, '_grid_alpha_sl'):
             gp._grid_alpha_sl.value = data["grid_alpha"]
-        if "grid_width" in data:
+        if "grid_width" in data and hasattr(gp, '_grid_width_sl'):
             gp._grid_width_sl.value = data["grid_width"]
-        if "grid_style" in data:
+        if "grid_style" in data and hasattr(gp, '_grid_style_dd'):
             gp._grid_style_dd.value = data["grid_style"]
-        # Legend
-        if "legend_show" in data:
+        # Legend (may not exist in multi-subplot mode)
+        if "legend_show" in data and hasattr(gp, '_legend_toggle'):
             gp._legend_toggle.value = data["legend_show"]
-        if "legend_frame" in data:
+        if "legend_frame" in data and hasattr(gp, '_frame_toggle'):
             gp._frame_toggle.value = data["legend_frame"]
-        if "legend_fontsize" in data:
+        if "legend_fontsize" in data and hasattr(gp, '_legend_fontsize_sl'):
             gp._legend_fontsize_sl.value = data["legend_fontsize"]
         # Colormap
         if "colormap" in data and gp._cmap_panel is not None:

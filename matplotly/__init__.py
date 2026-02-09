@@ -18,13 +18,14 @@ Usage:
 """
 from __future__ import annotations
 
+__version__ = "0.1.0"
+__all__ = ["matplotly"]
+
 import functools
 from typing import Any
 
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
-
-from ._api import PlotBuildSession
 
 
 def _suppress_auto_display(fig: Figure) -> None:
@@ -59,6 +60,7 @@ class _PlotBuildContext:
     def __exit__(self, exc_type, exc_val, exc_tb):
         if exc_type is not None:
             return False
+        from ._api import PlotBuildSession
         fig = plt.gcf()
         _suppress_auto_display(fig)
         session = PlotBuildSession(fig)
@@ -92,6 +94,8 @@ def matplotly(target: Figure | Any | None = None):
           and opens the editor.
         - None: returns a context manager.
     """
+    from ._api import PlotBuildSession
+
     cell_source = _capture_cell_source()
 
     # Case 1: Figure passed directly

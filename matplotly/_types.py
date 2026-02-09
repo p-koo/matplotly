@@ -16,6 +16,7 @@ class PlotType(Enum):
     HISTOGRAM = auto()
     ERRORBAR = auto()
     FILL_BETWEEN = auto()
+    HEATMAP = auto()
 
 
 @dataclass

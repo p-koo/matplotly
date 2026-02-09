@@ -35,10 +35,20 @@ class CanvasManager:
         with self._output:
             from IPython.display import display as ipy_display, Image
             # Ensure labels/ticks/titles fit within the figure
+            import warnings
             try:
-                self._fig.tight_layout()
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    self._fig.tight_layout()
             except Exception:
                 pass
+            # Re-apply custom subplot spacing (tight_layout resets it)
+            spacing = getattr(self._fig, '_matplotly_spacing', None)
+            if spacing:
+                self._fig.subplots_adjust(**spacing)
+            # Reposition marginal histograms after layout change
+            for mgr in getattr(self._fig, '_matplotly_marginal_managers', []):
+                mgr._rebuild()
             # Collect extra artists (like outside legends) for tight bbox
             extra = []
             for ax in self._fig.get_axes():
