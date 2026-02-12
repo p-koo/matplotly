@@ -902,7 +902,7 @@ class TestHistogramCodeGen:
         panels, shared = _make_hist_panels(
             self.groups, self.fig, self.canvas, self.stack)
         code = generate_code(self.fig, self.stack)
-        assert "containers[" in code
+        assert "_bar_cs[" in code
         assert "set_facecolor" in code
 
     def test_non_merged_compiles(self):
@@ -953,7 +953,7 @@ class TestHistogramMerged:
         code = generate_code(self.fig, self.stack)
         # Should not have the old remove-containers-then-replot pattern
         assert "for _p in _c: _p.remove()" not in code
-        assert "BarContainer as _BC" not in code
+        assert "ax.containers[:] =" not in code
 
     def test_merged_has_correct_labels(self):
         """Merged histogram labels should be 'A' and 'B'."""
@@ -2178,3 +2178,112 @@ class TestMultipleErrorbars:
         labels = sorted([g.label for g in eb_groups])
         assert labels == ["Errorbar: alpha", "Errorbar: beta"]
         plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
+# Bar error bar helpers
+# ---------------------------------------------------------------------------
+
+def _make_bar_panels(groups, fig, canvas, stack):
+    """Build BarPanel + BarSharedPanel for bar groups.
+
+    Returns (panels, shared_panel) or ([], None) if no bar groups.
+    """
+    from matplotly.panels._bar import BarPanel, BarSharedPanel
+
+    bar_groups = [g for g in groups if g.plot_type == PlotType.BAR]
+    if not bar_groups:
+        return [], None
+
+    panels = []
+    for i, grp in enumerate(bar_groups):
+        bp = BarPanel(grp, stack, canvas)
+        bp._plot_number = i + 1
+        bp.build()
+        bp._store_bar_info()
+        panels.append(bp)
+
+    shared = BarSharedPanel(panels, canvas)
+    shared.build()
+    return panels, shared
+
+
+# ---------------------------------------------------------------------------
+# Bar error bar tests
+# ---------------------------------------------------------------------------
+
+class TestBarErrorBars:
+    """Bar plot error bar toggle, drawing, clearing, and code generation."""
+
+    def setup_method(self):
+        self.fig, self.ax = plt.subplots(figsize=(7, 5))
+        self.ax.bar(['A', 'B', 'C'], [10, 20, 15], label='Sales')
+        self.stack = CommandStack()
+        self.canvas = MockCanvas(self.fig)
+        self.groups = FigureIntrospector(self.fig).introspect()
+        self.panels, self.shared = _make_bar_panels(
+            self.groups, self.fig, self.canvas, self.stack)
+
+    def teardown_method(self):
+        plt.close(self.fig)
+
+    def test_errorbars_default_off(self):
+        """Error bar toggle should default to False."""
+        assert len(self.panels) >= 1
+        assert self.panels[0]._show_errorbars is False
+
+    def test_enable_errorbars_draws_artists(self):
+        """Enabling error bars should create tagged artists on the axes."""
+        panel = self.panels[0]
+        panel._show_errorbars = True
+        panel._draw_bar_errorbars()
+        tagged = [l for l in self.ax.lines
+                  if getattr(l, '_matplotly_bar_errorbar', False)]
+        tagged += [c for c in self.ax.collections
+                   if getattr(c, '_matplotly_bar_errorbar', False)]
+        assert len(tagged) > 0
+
+    def test_disable_errorbars_clears_artists(self):
+        """Disabling error bars should remove all tagged artists."""
+        panel = self.panels[0]
+        panel._show_errorbars = True
+        panel._draw_bar_errorbars()
+        panel._show_errorbars = False
+        panel._clear_bar_errorbars()
+        tagged = [l for l in self.ax.lines
+                  if getattr(l, '_matplotly_bar_errorbar', False)]
+        tagged += [c for c in self.ax.collections
+                   if getattr(c, '_matplotly_bar_errorbar', False)]
+        assert len(tagged) == 0
+
+    def test_errorbars_in_code_gen(self):
+        """Enabling error bars should produce errorbar code in generate_code."""
+        panel = self.panels[0]
+        panel._show_errorbars = True
+        panel._draw_bar_errorbars()
+        code = generate_code(self.fig, self.stack)
+        assert "errorbar" in code.lower()
+
+    def test_errorbars_code_compiles(self):
+        """Generated code with error bars should be syntactically valid."""
+        panel = self.panels[0]
+        panel._show_errorbars = True
+        panel._draw_bar_errorbars()
+        code = generate_code(self.fig, self.stack)
+        try:
+            compile(code, "<generated>", "exec")
+        except SyntaxError as e:
+            pytest.fail(f"Bar errorbar code has syntax error: {e}")
+
+    def test_redraw_preserves_errorbars(self):
+        """Changing bar width with error bars on should redraw them."""
+        panel = self.panels[0]
+        panel._show_errorbars = True
+        panel._draw_bar_errorbars()
+        self.shared._bar_width = 0.5
+        self.shared._redraw_bars()
+        tagged = [l for l in self.ax.lines
+                  if getattr(l, '_matplotly_bar_errorbar', False)]
+        tagged += [c for c in self.ax.collections
+                   if getattr(c, '_matplotly_bar_errorbar', False)]
+        assert len(tagged) > 0

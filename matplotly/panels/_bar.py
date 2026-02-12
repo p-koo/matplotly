@@ -17,6 +17,7 @@ from ._base import ArtistPanel
 from ._color_utils import (
     _DW, _NW, _SN,
     _get_palette_colors, _make_color_dot, _refresh_legend, _slider_num,
+    cmap_color_btn,
 )
 
 
@@ -54,6 +55,18 @@ class BarPanel(ArtistPanel):
         self._alpha = alpha if alpha is not None else 1.0
         self._hatch = ref.get_hatch() or ""
         self._linestyle = ref.get_linestyle() or "-"
+
+        # Error bar state
+        self._original_errbar_artists = meta.get("errbar_artists", [])
+        self._errbar_values = meta.get("errbar_values", None)
+        has_orig_eb = bool(self._original_errbar_artists)
+        self._show_errorbars = has_orig_eb
+        self._errbar_color = meta.get("errbar_color", self._color)
+        self._errbar_alpha = 1.0
+        self._errbar_linewidth = meta.get("errbar_linewidth", 1.5)
+        self._errbar_capsize = meta.get("errbar_capsize", 3.0)
+        self._errbar_linestyle = "-"
+        self._errbar_color_auto = not has_orig_eb
 
         label = self._group.label
         if label.startswith("Bar: "):
@@ -217,7 +230,179 @@ class BarPanel(ArtistPanel):
         ls_dd.observe(_ls_cb, names="value")
         controls.append(ls_dd)
 
+        # --- Error bars toggle + controls ---
+        eb_toggle = widgets.Checkbox(
+            value=self._show_errorbars, description="Error Bars",
+            style={"description_width": "auto"},
+            indent=False)
+
+        def _on_eb_color(hex_val):
+            self._errbar_color = hex_val
+            self._errbar_color_auto = False
+            self._draw_bar_errorbars()
+            self._canvas.force_redraw()
+        eb_color_btn, eb_swatch_row = cmap_color_btn(
+            self._errbar_color, _on_eb_color)
+        eb_color_row = widgets.HBox(
+            [widgets.Label("Color:", layout=widgets.Layout(width='42px')),
+             eb_color_btn],
+            layout=widgets.Layout(align_items='center', gap='4px'))
+
+        eb_alpha_sl = widgets.FloatSlider(
+            value=self._errbar_alpha, min=0, max=1, step=0.05,
+            description="Alpha:", style=_SN)
+        def _eb_alpha_cb(change):
+            self._errbar_alpha = change["new"]
+            self._draw_bar_errorbars()
+            self._canvas.force_redraw()
+        eb_alpha_sl.observe(_eb_alpha_cb, names="value")
+
+        eb_lw_sl = widgets.FloatSlider(
+            value=self._errbar_linewidth, min=0.1, max=10, step=0.1,
+            description="Line w:", style=_SN)
+        def _eb_lw_cb(change):
+            self._errbar_linewidth = change["new"]
+            self._draw_bar_errorbars()
+            self._canvas.force_redraw()
+        eb_lw_sl.observe(_eb_lw_cb, names="value")
+
+        eb_cap_sl = widgets.FloatSlider(
+            value=self._errbar_capsize, min=0, max=15, step=0.5,
+            description="Cap size:", style=_SN)
+        def _eb_cap_cb(change):
+            self._errbar_capsize = change["new"]
+            self._draw_bar_errorbars()
+            self._canvas.force_redraw()
+        eb_cap_sl.observe(_eb_cap_cb, names="value")
+
+        eb_ls_dd = widgets.Dropdown(
+            options=[("solid", "-"), ("dashed", "--"),
+                     ("dotted", ":"), ("dashdot", "-.")],
+            value=self._errbar_linestyle, description="Style:",
+            style=_SN, layout=widgets.Layout(width="180px"))
+        def _eb_ls_cb(change):
+            self._errbar_linestyle = change["new"]
+            self._draw_bar_errorbars()
+            self._canvas.force_redraw()
+        eb_ls_dd.observe(_eb_ls_cb, names="value")
+
+        eb_controls = widgets.VBox(
+            [eb_color_row, eb_swatch_row,
+             _slider_num(eb_alpha_sl),
+             _slider_num(eb_lw_sl),
+             _slider_num(eb_cap_sl),
+             eb_ls_dd],
+            layout=widgets.Layout(
+                display='' if self._show_errorbars else 'none',
+                padding='2px 0 2px 12px'))
+        self._eb_color_btn = eb_color_btn
+
+        def _eb_toggle_cb(change):
+            self._show_errorbars = change["new"]
+            if self._show_errorbars:
+                eb_controls.layout.display = ''
+                self._draw_bar_errorbars()
+            else:
+                eb_controls.layout.display = 'none'
+                self._clear_bar_errorbars()
+                self._update_bar_info()
+                self._canvas.force_redraw()
+        eb_toggle.observe(_eb_toggle_cb, names="value")
+        controls.append(eb_toggle)
+        controls.append(eb_controls)
+
         return controls
+
+    # --- Error bar drawing ---------------------------------------------------
+
+    def _clear_bar_errorbars(self):
+        """Remove all error bar artists for this panel (matplotly + original)."""
+        ax = self._group.axes
+        gid = id(self._group)
+        # Remove matplotly-tagged error bar artists
+        for l in list(ax.lines):
+            if (getattr(l, '_matplotly_bar_errorbar', False)
+                    and getattr(l, '_matplotly_bar_eb_group', None) == gid):
+                l.remove()
+        for c in list(ax.collections):
+            if (getattr(c, '_matplotly_bar_errorbar', False)
+                    and getattr(c, '_matplotly_bar_eb_group', None) == gid):
+                c.remove()
+        from matplotlib.container import ErrorbarContainer
+        ax.containers[:] = [
+            c for c in ax.containers
+            if not (isinstance(c, ErrorbarContainer)
+                    and getattr(c, '_matplotly_bar_errorbar', False)
+                    and getattr(c, '_matplotly_bar_eb_group', None) == gid)
+        ]
+        # Remove original error bar artists (from ax.bar(yerr=...))
+        for art in self._original_errbar_artists:
+            try:
+                art.remove()
+            except (ValueError, AttributeError):
+                pass
+        self._original_errbar_artists = []
+        # Remove original ErrorbarContainer
+        orig_eb = self._group.metadata.get("errbar_container")
+        if orig_eb is not None:
+            ax.containers[:] = [
+                c for c in ax.containers if c is not orig_eb]
+            self._group.metadata["errbar_container"] = None
+
+    def _draw_bar_errorbars(self):
+        """Draw error bars on the bar chart using the bar values as errors."""
+        self._clear_bar_errorbars()
+        if not self._show_errorbars:
+            return
+
+        ax = self._group.axes
+        positions = np.asarray(self._positions)
+        values = np.asarray(self._values)
+        if len(positions) == 0 or len(values) == 0:
+            return
+
+        # Use stored error values if provided, otherwise use the bar values
+        if self._errbar_values is not None:
+            errors = np.asarray(self._errbar_values)
+        else:
+            errors = np.abs(values) * 0.1  # default: 10% of bar value
+
+        is_horiz = self._orientation == "horizontal"
+        if is_horiz:
+            eb = ax.errorbar(
+                values, positions, xerr=errors, fmt='none',
+                ecolor=self._errbar_color,
+                elinewidth=self._errbar_linewidth,
+                capsize=self._errbar_capsize,
+                alpha=self._errbar_alpha,
+                zorder=self._zorder + 1,
+            )
+        else:
+            eb = ax.errorbar(
+                positions, values, yerr=errors, fmt='none',
+                ecolor=self._errbar_color,
+                elinewidth=self._errbar_linewidth,
+                capsize=self._errbar_capsize,
+                alpha=self._errbar_alpha,
+                zorder=self._zorder + 1,
+            )
+
+        # Apply linestyle to bar segments
+        if self._errbar_linestyle != "-":
+            for bar_coll in eb[2]:
+                bar_coll.set_linestyle(self._errbar_linestyle)
+
+        # Tag all artists in the ErrorbarContainer
+        gid = id(self._group)
+        for artist in eb.get_children():
+            artist._matplotly_bar_errorbar = True
+            artist._matplotly_bar_eb_group = gid
+            artist.set_label("_nolegend_")
+        eb._matplotly_bar_errorbar = True
+        eb._matplotly_bar_eb_group = gid
+
+        self._update_bar_info()
+        self._canvas.force_redraw()
 
     # --- Color section (reused for face + edge) ---
 
@@ -336,6 +521,13 @@ class BarPanel(ArtistPanel):
                 self._color = hex_val
                 for p in self._group.artists:
                     p.set_facecolor(hex_val)
+                # Sync error bar color if auto-tracking
+                if self._errbar_color_auto:
+                    self._errbar_color = hex_val
+                    if hasattr(self, '_eb_color_btn'):
+                        self._eb_color_btn.style.button_color = hex_val
+                    if self._show_errorbars:
+                        self._draw_bar_errorbars()
             else:
                 self._edgecolor = hex_val
                 for p in self._group.artists:
@@ -447,6 +639,15 @@ class BarPanel(ArtistPanel):
             "tick_rotation": 0,
             "tick_ha": "center",
             "tick_pad": 4.0,
+            "show_errorbars": self._show_errorbars,
+            "errbar_color": self._errbar_color,
+            "errbar_alpha": self._errbar_alpha,
+            "errbar_linewidth": self._errbar_linewidth,
+            "errbar_capsize": self._errbar_capsize,
+            "errbar_linestyle": self._errbar_linestyle,
+            "errbar_values": (self._errbar_values.tolist()
+                              if self._errbar_values is not None
+                              else None),
         }
         if not hasattr(ax, '_matplotly_bar_info'):
             ax._matplotly_bar_info = []
@@ -472,6 +673,15 @@ class BarPanel(ArtistPanel):
                 info["hatch"] = self._hatch
                 info["linestyle"] = self._linestyle
                 info["zorder"] = self._zorder
+                info["show_errorbars"] = self._show_errorbars
+                info["errbar_color"] = self._errbar_color
+                info["errbar_alpha"] = self._errbar_alpha
+                info["errbar_linewidth"] = self._errbar_linewidth
+                info["errbar_capsize"] = self._errbar_capsize
+                info["errbar_linestyle"] = self._errbar_linestyle
+                info["errbar_values"] = (self._errbar_values.tolist()
+                                         if self._errbar_values is not None
+                                         else None)
                 break
 
 
@@ -672,6 +882,10 @@ class BarSharedPanel:
         from .._introspect import FigureIntrospector as _FI
         ax = self._ax
 
+        # Clear error bars for all panels
+        for panel in self._panels:
+            panel._clear_bar_errorbars()
+
         for c in list(ax.containers):
             if isinstance(c, BarContainer) and not _FI._is_histogram_container(c):
                 for p in c:
@@ -781,6 +995,11 @@ class BarSharedPanel:
             info['tick_rotation'] = self._tick_rotation
             info['tick_ha'] = self._tick_ha
             info['tick_pad'] = self._tick_pad
+
+        # Redraw error bars for panels that have them enabled
+        for panel in self._panels:
+            if panel._show_errorbars:
+                panel._draw_bar_errorbars()
 
         ax.relim()
         ax.autoscale_view()

@@ -815,8 +815,27 @@ class FigureIntrospector:
 
     def _detect_errorbars(self, ax, subplot_index) -> list[ArtistGroup]:
         groups: list[ArtistGroup] = []
+
+        # Identify ErrorbarContainers owned by BarContainers (from yerr/xerr)
+        # These are managed by BarPanel, not ErrorbarPanel.
+        bar_owned_ebs: set[int] = set()
+        for c in getattr(ax, "containers", []):
+            if isinstance(c, BarContainer):
+                eb = getattr(c, 'errorbar', None)
+                if eb is not None:
+                    bar_owned_ebs.add(id(eb))
+                    # Claim errorbar artists so they don't appear in other panels
+                    if eb[0] is not None:
+                        self._claim(eb[0])
+                    for cap in eb[1]:
+                        self._claim(cap)
+                    for barcol in eb[2]:
+                        self._claim(barcol)
+
         for container in getattr(ax, "containers", []):
             if isinstance(container, ErrorbarContainer):
+                if id(container) in bar_owned_ebs:
+                    continue  # Skip bar-owned error bars
                 artists = []
                 data_line = container[0]
                 if data_line is not None:
@@ -1075,6 +1094,52 @@ class FigureIntrospector:
                 "orientation": orientation,
                 "zorder": sorted_patches[0].get_zorder(),
             }
+
+            # Extract error bar info from BarContainer.errorbar (yerr/xerr)
+            eb = getattr(container, 'errorbar', None)
+            if eb is not None:
+                errbar_artists = []
+                if eb[0] is not None:
+                    errbar_artists.append(eb[0])
+                errbar_artists.extend(list(eb[1]))  # caplines
+                errbar_artists.extend(list(eb[2]))  # barlinecols
+                metadata["errbar_artists"] = errbar_artists
+                metadata["errbar_container"] = eb
+
+                barlinecols = list(eb[2])
+                caplines = list(eb[1])
+
+                # Extract error values from segments
+                pos_arr = np.array(positions)
+                val_arr = np.array(values)
+                err_axis = 'y' if orientation == 'vertical' else 'x'
+                yerr = self._extract_error_from_segments(
+                    barlinecols[:1], pos_arr, val_arr, axis=err_axis)
+                if yerr is not None:
+                    metadata["errbar_values"] = yerr
+
+                # Extract cap size
+                if caplines:
+                    try:
+                        metadata["errbar_capsize"] = float(
+                            caplines[0].get_markersize())
+                    except Exception:
+                        metadata["errbar_capsize"] = 3.0
+
+                # Extract error bar color from barlinecols
+                if barlinecols:
+                    try:
+                        colors = barlinecols[0].get_colors()
+                        if len(colors) > 0:
+                            metadata["errbar_color"] = to_hex(colors[0])
+                    except Exception:
+                        pass
+                    try:
+                        lws = barlinecols[0].get_linewidths()
+                        metadata["errbar_linewidth"] = float(
+                            lws[0]) if len(lws) > 0 else 1.5
+                    except Exception:
+                        metadata["errbar_linewidth"] = 1.5
 
             ptype = PlotType.GROUPED_BAR if is_grouped else PlotType.BAR
             groups.append(ArtistGroup(

@@ -68,8 +68,12 @@ def generate_code(fig: Figure, stack: CommandStack) -> str:
         for l in ax.lines:
             if getattr(l, '_matplotly_errorbar', False):
                 errorbar_artist_ids.add(id(l))
+            if getattr(l, '_matplotly_bar_errorbar', False):
+                errorbar_artist_ids.add(id(l))
         for coll in ax.collections:
             if getattr(coll, '_matplotly_errorbar', False):
+                errorbar_artist_ids.add(id(coll))
+            if getattr(coll, '_matplotly_bar_errorbar', False):
                 errorbar_artist_ids.add(id(coll))
 
         # --- Lines (filtered list for stable indexing) ---
@@ -103,9 +107,14 @@ def generate_code(fig: Figure, stack: CommandStack) -> str:
         from matplotlib.container import BarContainer as _BCt
         from matplotlib.patches import Rectangle as _Rect
 
+        # Build BarContainer-only index list (excludes ErrorbarContainers)
+        _all_bc_idxs = [ci for ci, _c in enumerate(ax.containers)
+                        if isinstance(_c, _BCt)]
+
         _hist_infos = getattr(ax, '_matplotly_hist_info', [])
         _hist_merged = any(hi.get('merged', False) for hi in _hist_infos)
         _skip_hist_style = False
+        _need_bar_cs = False  # whether to emit _bar_cs filter in output
 
         if _hist_infos and _hist_merged:
             # Merged: all BarContainers are histogram containers
@@ -159,8 +168,20 @@ def generate_code(fig: Figure, stack: CommandStack) -> str:
                 _halpha = _hp0.get_alpha()
                 _hlw = _hp0.get_linewidth()
 
+                # Use BarContainer-relative index for robustness
+                _h_bc_idx = (_all_bc_idxs.index(_hci)
+                             if _hci in _all_bc_idxs else _hci)
+                if not _need_bar_cs:
+                    lines.append(
+                        "\nfrom matplotlib.container import "
+                        "BarContainer as _BC")
+                    lines.append(
+                        f"_bar_cs = [c for c in {ax_var}.containers "
+                        f"if isinstance(c, _BC)]")
+                    _need_bar_cs = True
+
                 lines.append(f"\n# Histogram: {_hlbl}")
-                _hacc = f"{ax_var}.containers[{_hci}]"
+                _hacc = f"_bar_cs[{_h_bc_idx}]"
                 lines.append(f"for _p in {_hacc}:")
                 lines.append(f"    _p.set_facecolor({_fmt(_hfc)})")
                 lines.append(f"    _p.set_edgecolor({_fmt(_hec)})")
@@ -177,9 +198,13 @@ def generate_code(fig: Figure, stack: CommandStack) -> str:
         # --- Bars (style existing containers) ---
         bar_patch_ids: set[int] = set()
         bar_container_idxs: list[int] = []
+        # bar_bc_rel_idxs: position of each bar within BarContainer-only list
+        bar_bc_rel_idxs: list[int] = []
         for ci, _c in enumerate(ax.containers):
             if isinstance(_c, _BCt) and ci not in hist_container_idxs:
                 bar_container_idxs.append(ci)
+                bar_bc_rel_idxs.append(
+                    _all_bc_idxs.index(ci) if ci in _all_bc_idxs else ci)
                 for _p in _c:
                     bar_patch_ids.add(id(_p))
 
@@ -200,8 +225,19 @@ def generate_code(fig: Figure, stack: CommandStack) -> str:
             _balpha = _bp0.get_alpha()
             _blw = _bp0.get_linewidth()
 
+            # Emit BarContainer filter if not yet done
+            if not _need_bar_cs:
+                lines.append(
+                    "\nfrom matplotlib.container import "
+                    "BarContainer as _BC")
+                lines.append(
+                    f"_bar_cs = [c for c in {ax_var}.containers "
+                    f"if isinstance(c, _BC)]")
+                _need_bar_cs = True
+
+            _b_rel_idx = bar_bc_rel_idxs[_bj]
             lines.append(f"\n# {_blbl}")
-            _bacc = f"{ax_var}.containers[{_bci}]"
+            _bacc = f"_bar_cs[{_b_rel_idx}]"
             lines.append(f"for _p in {_bacc}:")
             lines.append(f"    _p.set_facecolor({_fmt(_bfc)})")
             lines.append(f"    _p.set_edgecolor({_fmt(_bec)})")
@@ -259,6 +295,12 @@ def generate_code(fig: Figure, stack: CommandStack) -> str:
                     _bi_tl_args += ", rotation_mode='anchor'"
                 lines.append(
                     f"{ax_var}.set_{_bi_tax}ticklabels({_bi_tl_args})")
+
+        # --- Bar error bars ---
+        if _bar_infos:
+            _emit_bar_errorbars(
+                lines, ax_var, _bar_infos, bar_bc_rel_idxs,
+                _need_bar_cs)
 
         # --- Distribution plots (bxp-based recreation) ---
         _dist_data_vars = getattr(ax, '_matplotly_dist_data_vars', None)
@@ -1472,6 +1514,74 @@ def _emit_hist_merged(lines, ax_var, hist_infos, data_vars=None):
                     f"# for _p in {ax_var}.containers[{i}]:")
                 lines.append(f"#     _p.set_hatch({_fmt(hatch)})")
         return False  # emit style-only loop
+
+
+def _emit_bar_errorbars(lines, ax_var, bar_infos, bar_bc_rel_idxs,
+                        need_bar_cs):
+    """Emit errorbar code for bar groups with show_errorbars=True."""
+    for idx, bi in enumerate(bar_infos):
+        if not bi.get('show_errorbars', False):
+            continue
+
+        label = bi.get('label', f'Bar {idx}')
+        color = bi.get('errbar_color', bi.get('color', '#1f77b4'))
+        alpha = bi.get('errbar_alpha', 1.0)
+        lw = bi.get('errbar_linewidth', 1.5)
+        capsize = bi.get('errbar_capsize', 3.0)
+        ls = bi.get('errbar_linestyle', '-')
+        orientation = bi.get('orientation', 'vertical')
+        errbar_values = bi.get('errbar_values', None)
+
+        if idx >= len(bar_bc_rel_idxs):
+            continue
+        bc_idx = bar_bc_rel_idxs[idx]
+
+        # Emit BarContainer filter if needed
+        if not need_bar_cs:
+            lines.append(
+                "\nfrom matplotlib.container import "
+                "BarContainer as _BC")
+            lines.append(
+                f"_bar_cs = [c for c in {ax_var}.containers "
+                f"if isinstance(c, _BC)]")
+            need_bar_cs = True
+
+        _bacc = f"_bar_cs[{bc_idx}]"
+        lines.append(f"\n# Error bars: {label}")
+        if orientation == 'horizontal':
+            lines.append(
+                f"_bx = np.array([p.get_width() for p in {_bacc}])")
+            lines.append(
+                f"_by = np.array([p.get_y() + p.get_height() / 2 "
+                f"for p in {_bacc}])")
+            if errbar_values is not None:
+                lines.append(f"_berr = np.array({errbar_values!r})")
+            else:
+                lines.append(f"_berr = np.abs(_bx) * 0.1")
+            eb_args = (
+                f"_bx, _by, xerr=_berr, fmt='none', "
+                f"ecolor={_fmt(color)}, elinewidth={_fmt(lw)}, "
+                f"capsize={_fmt(capsize)}")
+        else:
+            lines.append(
+                f"_bx = np.array([p.get_x() + p.get_width() / 2 "
+                f"for p in {_bacc}])")
+            lines.append(
+                f"_by = np.array([p.get_height() for p in {_bacc}])")
+            if errbar_values is not None:
+                lines.append(f"_berr = np.array({errbar_values!r})")
+            else:
+                lines.append(f"_berr = np.abs(_by) * 0.1")
+            eb_args = (
+                f"_bx, _by, yerr=_berr, fmt='none', "
+                f"ecolor={_fmt(color)}, elinewidth={_fmt(lw)}, "
+                f"capsize={_fmt(capsize)}")
+
+        if ls != '-':
+            eb_args += f", linestyle={_fmt(ls)}"
+        if alpha != 1.0:
+            eb_args += f", alpha={_fmt(alpha)}"
+        lines.append(f"{ax_var}.errorbar({eb_args})")
 
 
 def _emit_heatmap(lines, ax_var, heatmap_infos):
