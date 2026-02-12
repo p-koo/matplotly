@@ -298,9 +298,7 @@ def generate_code(fig: Figure, stack: CommandStack) -> str:
 
         # --- Bar error bars ---
         if _bar_infos:
-            _emit_bar_errorbars(
-                lines, ax_var, _bar_infos, bar_bc_rel_idxs,
-                _need_bar_cs)
+            _emit_bar_errorbars(lines, ax_var, _bar_infos)
 
         # --- Distribution plots (bxp-based recreation) ---
         _dist_data_vars = getattr(ax, '_matplotly_dist_data_vars', None)
@@ -1516,8 +1514,7 @@ def _emit_hist_merged(lines, ax_var, hist_infos, data_vars=None):
         return False  # emit style-only loop
 
 
-def _emit_bar_errorbars(lines, ax_var, bar_infos, bar_bc_rel_idxs,
-                        need_bar_cs):
+def _emit_bar_errorbars(lines, ax_var, bar_infos):
     """Emit errorbar code for bar groups with show_errorbars=True."""
     for idx, bi in enumerate(bar_infos):
         if not bi.get('show_errorbars', False):
@@ -1531,57 +1528,34 @@ def _emit_bar_errorbars(lines, ax_var, bar_infos, bar_bc_rel_idxs,
         ls = bi.get('errbar_linestyle', '-')
         orientation = bi.get('orientation', 'vertical')
         errbar_values = bi.get('errbar_values', None)
+        positions = bi.get('positions', [])
+        values = bi.get('values', [])
 
-        if idx >= len(bar_bc_rel_idxs):
+        if not positions or not values:
             continue
-        bc_idx = bar_bc_rel_idxs[idx]
+        if errbar_values is None:
+            continue  # no error data available
 
-        # Emit BarContainer filter if needed
-        if not need_bar_cs:
-            lines.append(
-                "\nfrom matplotlib.container import "
-                "BarContainer as _BC")
-            lines.append(
-                f"_bar_cs = [c for c in {ax_var}.containers "
-                f"if isinstance(c, _BC)]")
-            need_bar_cs = True
+        pos_r = [round(float(p), 4) for p in positions]
+        val_r = [round(float(v), 4) for v in values]
+        err_r = [round(float(e), 4) for e in errbar_values]
 
-        _bacc = f"_bar_cs[{bc_idx}]"
         lines.append(f"\n# Error bars: {label}")
+        err_kw = f"fmt='none', ecolor={_fmt(color)}, elinewidth={_fmt(lw)}"
+        err_kw += f", capsize={_fmt(capsize)}"
+        if ls != '-':
+            err_kw += f", linestyle={_fmt(ls)}"
+        if alpha != 1.0:
+            err_kw += f", alpha={_fmt(alpha)}"
+
         if orientation == 'horizontal':
             lines.append(
-                f"_bx = np.array([p.get_width() for p in {_bacc}])")
-            lines.append(
-                f"_by = np.array([p.get_y() + p.get_height() / 2 "
-                f"for p in {_bacc}])")
-            if errbar_values is not None:
-                lines.append(f"_berr = np.array({errbar_values!r})")
-            else:
-                lines.append(f"_berr = np.abs(_bx) * 0.1")
-            eb_args = (
-                f"_bx, _by, xerr=_berr, fmt='none', "
-                f"ecolor={_fmt(color)}, elinewidth={_fmt(lw)}, "
-                f"capsize={_fmt(capsize)}")
+                f"{ax_var}.errorbar({val_r!r}, {pos_r!r}, "
+                f"xerr={err_r!r}, {err_kw})")
         else:
             lines.append(
-                f"_bx = np.array([p.get_x() + p.get_width() / 2 "
-                f"for p in {_bacc}])")
-            lines.append(
-                f"_by = np.array([p.get_height() for p in {_bacc}])")
-            if errbar_values is not None:
-                lines.append(f"_berr = np.array({errbar_values!r})")
-            else:
-                lines.append(f"_berr = np.abs(_by) * 0.1")
-            eb_args = (
-                f"_bx, _by, yerr=_berr, fmt='none', "
-                f"ecolor={_fmt(color)}, elinewidth={_fmt(lw)}, "
-                f"capsize={_fmt(capsize)}")
-
-        if ls != '-':
-            eb_args += f", linestyle={_fmt(ls)}"
-        if alpha != 1.0:
-            eb_args += f", alpha={_fmt(alpha)}"
-        lines.append(f"{ax_var}.errorbar({eb_args})")
+                f"{ax_var}.errorbar({pos_r!r}, {val_r!r}, "
+                f"yerr={err_r!r}, {err_kw})")
 
 
 def _emit_heatmap(lines, ax_var, heatmap_infos):
