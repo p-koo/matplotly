@@ -138,12 +138,20 @@ def apply_profile(data: dict, global_panel, canvas) -> None:
         # Colormap
         if "colormap" in data and gp._cmap_panel is not None:
             gp._cmap_panel.apply(data["colormap"])
+        # Background color
+        if "background_color" in data:
+            bg = data["background_color"]
+            fig = gp._fig
+            fig.set_facecolor(bg)
+            for ax in fig.get_axes():
+                ax.set_facecolor(bg)
     finally:
         canvas.redraw = orig_redraw
     canvas.force_redraw()
 
 
-def create_profiles_panel(global_panel, canvas) -> widgets.Widget:
+def create_profiles_panel(global_panel, canvas,
+                          artist_panels=None) -> widgets.Widget:
     """Build the Profiles accordion section."""
     _ensure_dir()
 
@@ -232,10 +240,16 @@ def create_profiles_panel(global_panel, canvas) -> widgets.Widget:
     save_btn.on_click(_on_save)
     delete_btn.on_click(_on_delete)
 
+    # --- AI Style Import sub-section ---
+    from ._ai_extract import create_ai_import_section
+    ai_section = create_ai_import_section(
+        global_panel, canvas, artist_panels=artist_panels)
+
     return widgets.VBox([
         widgets.HBox([profile_dd, load_btn, delete_btn],
                      layout=widgets.Layout(gap="4px", align_items="center")),
         widgets.HBox([name_field, save_btn],
                      layout=widgets.Layout(gap="4px", align_items="center")),
         status,
+        ai_section,
     ])

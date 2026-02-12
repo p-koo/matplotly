@@ -951,7 +951,11 @@ class PlotBuildSession:
             sections.append(legend_acc)
 
         # Profiles
-        profiles_panel = create_profiles_panel(global_panel, self._canvas)
+        all_artist_panels = (line_panels + scatter_panels + bar_panels
+                             + histogram_panels + dist_panels
+                             + heatmap_panels + errorbar_panels)
+        profiles_panel = create_profiles_panel(
+            global_panel, self._canvas, artist_panels=all_artist_panels)
         profiles_acc = widgets.Accordion(children=[profiles_panel])
         profiles_acc.set_title(0, "Profiles")
         profiles_acc.selected_index = None
