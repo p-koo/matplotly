@@ -87,59 +87,64 @@ def apply_profile(data: dict, global_panel, canvas) -> None:
     orig_redraw = canvas.redraw
     canvas.redraw = lambda: None
     try:
+        # Helper: get value if key exists and value is not None
+        def _v(key):
+            val = data.get(key)
+            return val  # returns None if missing or explicitly null
+
         # Font
-        if "font_family" in data:
+        if _v("font_family") is not None:
             # Add to dropdown if not present
             opts = list(gp._font_dd.options)
             if data["font_family"] not in opts:
                 opts.insert(0, data["font_family"])
                 gp._font_dd.options = opts
             gp._font_dd.value = data["font_family"]
-        if "title_size" in data:
+        if _v("title_size") is not None:
             gp._title_size_sl.value = data["title_size"]
-        if "label_size" in data:
+        if _v("label_size") is not None:
             gp._label_size_sl.value = data["label_size"]
-        if "tick_size" in data:
+        if _v("tick_size") is not None:
             gp._tick_size_sl.value = data["tick_size"]
         # Spines (may not exist in multi-subplot mode)
-        if "spine_top" in data and hasattr(gp, '_spine_top_cb'):
+        if _v("spine_top") is not None and hasattr(gp, '_spine_top_cb'):
             gp._spine_top_cb.value = data["spine_top"]
-        if "spine_right" in data and hasattr(gp, '_spine_right_cb'):
+        if _v("spine_right") is not None and hasattr(gp, '_spine_right_cb'):
             gp._spine_right_cb.value = data["spine_right"]
-        if "spine_bottom" in data and hasattr(gp, '_spine_bottom_cb'):
+        if _v("spine_bottom") is not None and hasattr(gp, '_spine_bottom_cb'):
             gp._spine_bottom_cb.value = data["spine_bottom"]
-        if "spine_left" in data and hasattr(gp, '_spine_left_cb'):
+        if _v("spine_left") is not None and hasattr(gp, '_spine_left_cb'):
             gp._spine_left_cb.value = data["spine_left"]
-        if "spine_width" in data and hasattr(gp, '_spine_width_sl'):
+        if _v("spine_width") is not None and hasattr(gp, '_spine_width_sl'):
             gp._spine_width_sl.value = data["spine_width"]
         # Ticks (may not exist in multi-subplot mode)
-        if "tick_direction" in data and hasattr(gp, '_tick_dir_dd'):
+        if _v("tick_direction") is not None and hasattr(gp, '_tick_dir_dd'):
             gp._tick_dir_dd.value = data["tick_direction"]
-        if "tick_length" in data and hasattr(gp, '_tick_len_sl'):
+        if _v("tick_length") is not None and hasattr(gp, '_tick_len_sl'):
             gp._tick_len_sl.value = data["tick_length"]
-        if "tick_width" in data and hasattr(gp, '_tick_width_sl'):
+        if _v("tick_width") is not None and hasattr(gp, '_tick_width_sl'):
             gp._tick_width_sl.value = data["tick_width"]
         # Grid (may not exist in multi-subplot mode)
-        if "grid_on" in data and hasattr(gp, '_grid_toggle'):
+        if _v("grid_on") is not None and hasattr(gp, '_grid_toggle'):
             gp._grid_toggle.value = data["grid_on"]
-        if "grid_alpha" in data and hasattr(gp, '_grid_alpha_sl'):
+        if _v("grid_alpha") is not None and hasattr(gp, '_grid_alpha_sl'):
             gp._grid_alpha_sl.value = data["grid_alpha"]
-        if "grid_width" in data and hasattr(gp, '_grid_width_sl'):
+        if _v("grid_width") is not None and hasattr(gp, '_grid_width_sl'):
             gp._grid_width_sl.value = data["grid_width"]
-        if "grid_style" in data and hasattr(gp, '_grid_style_dd'):
+        if _v("grid_style") is not None and hasattr(gp, '_grid_style_dd'):
             gp._grid_style_dd.value = data["grid_style"]
         # Legend (may not exist in multi-subplot mode)
-        if "legend_show" in data and hasattr(gp, '_legend_toggle'):
+        if _v("legend_show") is not None and hasattr(gp, '_legend_toggle'):
             gp._legend_toggle.value = data["legend_show"]
-        if "legend_frame" in data and hasattr(gp, '_frame_toggle'):
+        if _v("legend_frame") is not None and hasattr(gp, '_frame_toggle'):
             gp._frame_toggle.value = data["legend_frame"]
-        if "legend_fontsize" in data and hasattr(gp, '_legend_fontsize_sl'):
+        if _v("legend_fontsize") is not None and hasattr(gp, '_legend_fontsize_sl'):
             gp._legend_fontsize_sl.value = data["legend_fontsize"]
         # Colormap
-        if "colormap" in data and gp._cmap_panel is not None:
+        if _v("colormap") is not None and gp._cmap_panel is not None:
             gp._cmap_panel.apply(data["colormap"])
         # Background color
-        if "background_color" in data:
+        if _v("background_color") is not None:
             bg = data["background_color"]
             fig = gp._fig
             fig.set_facecolor(bg)
