@@ -23,10 +23,20 @@ reproducible Python code. No separate GUI; everything runs inline in your notebo
 ## Installation
 
 ```bash
+pip install matplotly[ai]
+```
+
+This includes everything: the interactive editor plus AI-powered style extraction via Claude or GPT vision models. Requires an Anthropic or OpenAI API key for the AI features (configured in the UI).
+
+For a lightweight install **without** AI dependencies (`anthropic`, `openai`, `Pillow`, `PyMuPDF`):
+
+```bash
 pip install matplotly
 ```
 
-Requires a Jupyter environment with the `ipympl` backend enabled:
+The base install gives you the full interactive editor — manual controls for styles, colors, labels, legends, code export, undo/redo, and style profiles. The only difference is you won't have the AI style extraction tab.
+
+Both versions require a Jupyter environment with the `ipympl` backend:
 
 ```python
 %matplotlib widget
@@ -74,13 +84,22 @@ with matplotly() as pb:
 
 ## AI Style Extraction
 
-Upload a reference plot image and let an AI vision model extract its style — fonts, colors, spines, ticks, grid, legend, and more — then apply it to your figure in one click.
+Have a plot style you want to match? Upload a reference image and let a vision model do the work.
 
-```bash
-pip install matplotly[ai]
-```
+**How it works:** You upload a reference plot image (PNG, JPEG, PDF, TIFF, or WebP) and select a vision model. The system runs a two-pass agentic pipeline:
 
-Supports **Anthropic** (Claude) and **OpenAI** (GPT-4o, GPT-5) as providers. Two-pass extraction: the first pass extracts style parameters, the second pass verifies and corrects them. Extracted styles can be downloaded as JSON profiles for reuse without further API calls.
+1. **Pass 1 — Extraction:** The vision model analyzes the reference image and extracts a structured JSON of style parameters: font sizes and families, spine visibility, tick direction/length, grid settings, legend placement, background color, and per-series properties (colors, line widths, markers, hatches, etc.).
+2. **Pass 2 — Verification:** The same model re-examines the reference image against the extracted parameters, checking each one for accuracy. Only fields that need correction are updated.
+
+The corrected styles are then applied to your figure automatically — updating both the matplotlib artists and the UI controls so everything stays in sync.
+
+**Supported providers:**
+- **Anthropic:** Claude Sonnet 4, Claude Haiku 3.5
+- **OpenAI:** GPT-5, GPT-4o, and variants
+
+**Saving and reusing styles:** After extraction, you can download the result as a JSON profile. Load it later to apply the same style to any figure — no API call needed.
+
+**API keys:** Enter your Anthropic or OpenAI key in the UI. Keys are saved locally to `~/.matplotly/config.json` so you only need to enter them once.
 
 ## Documentation
 
