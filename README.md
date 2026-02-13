@@ -14,6 +14,7 @@ reproducible Python code. No separate GUI; everything runs inline in your notebo
 ## Features
 
 - **10+ plot types**: line, scatter, bar, histogram, box, violin, errorbar, heatmap, fill, marginal
+- **AI style extraction**: upload a reference plot image and automatically match its style (fonts, colors, spines, ticks, legend, etc.) using Claude or GPT vision models
 - **Code generation**: export a standalone Python script that recreates your styled figure
 - **Undo / redo**: full command history with keyboard shortcuts
 - **Style profiles**: save and load reusable figure styles
@@ -70,6 +71,16 @@ with matplotly() as pb:
 | Heatmap | `ax.imshow()` / `ax.pcolormesh()` |
 | Fill | `ax.fill_between()` / `ax.fill_betweenx()` |
 | Marginal | Joint + marginal distribution plots |
+
+## AI Style Extraction
+
+Upload a reference plot image and let an AI vision model extract its style — fonts, colors, spines, ticks, grid, legend, and more — then apply it to your figure in one click.
+
+```bash
+pip install matplotly[ai]
+```
+
+Supports **Anthropic** (Claude) and **OpenAI** (GPT-4o, GPT-5) as providers. Two-pass extraction: the first pass extracts style parameters, the second pass verifies and corrects them. Extracted styles can be downloaded as JSON profiles for reuse without further API calls.
 
 ## Documentation
 
