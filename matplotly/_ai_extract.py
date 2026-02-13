@@ -202,10 +202,17 @@ AXIS SCALE: Check if axes use linear or logarithmic scale.
   - If tick labels increase exponentially (1, 10, 100, 1000) → "log"
   - Most plots use "linear" (default).
 
-SPINES: Check each of the four borders of the plot area.
-  - Many scientific plots hide the top and right spines (spine_top=false,
-    spine_right=false). Look carefully — if there is no line along the top
-    or right edge, set to false.
+SPINES: THIS IS CRITICAL. Check ALL FOUR borders of the plot area individually.
+  You MUST set each spine independently — do not skip any.
+  - spine_top: Is there a line along the TOP edge of the plot area? If NO
+    line is visible at the top, set spine_top=false.
+  - spine_right: Is there a line along the RIGHT edge of the plot area? If NO
+    line is visible on the right, set spine_right=false.
+  - spine_bottom: Is there a line along the BOTTOM edge? (Usually true.)
+  - spine_left: Is there a line along the LEFT edge? (Usually true.)
+  - MOST scientific figures hide top and right spines. Default to
+    spine_top=false, spine_right=false unless you clearly see those lines.
+  - spine_width: thickness of visible spine lines (typically 0.5-1.5).
 
 GRID: Look for light horizontal/vertical lines behind the data.
   - If there are no grid lines, set grid_on=false.
@@ -310,55 +317,90 @@ You are a scientific-figure style assessment agent. You are given:
 1. A REFERENCE plot image.
 2. A JSON object of extracted style parameters from that image.
 
-Your job: verify EACH parameter against the reference image. Output a JSON \
-object with ONLY fields that need correction. Use the same JSON structure as \
-the input (with "global" and optionally "series" keys). If everything looks \
-correct, output: {}
+Your job: go through EVERY parameter below one by one and verify it against \
+the reference image. Output a JSON object with ONLY fields that need \
+correction. Use the same JSON structure as the input (with "global" and \
+optionally "series" keys). If everything looks correct, output: {}
 
-IMPORTANT RULES:
-- Do NOT change title_bold or label_bold to true unless the text is CLEARLY \
-  and OBVIOUSLY heavier/thicker than regular weight. Most scientific plots \
-  use normal (non-bold) text. Default assumption should be false.
+RULES:
+- Do NOT set title_bold or label_bold to true unless text is UNMISTAKABLY \
+  heavier than normal weight. Default assumption is false.
 - Do NOT change colors unless they are clearly a different hue.
 
-CHECK THESE CAREFULLY (most commonly wrong):
+=== COMPLETE CHECKLIST — verify EVERY item ===
 
-FONT SIZES — Use the RELATIVE SIZE METHOD:
-  1. Look at tick labels (small numbers on axes). Estimate tick_size.
-     Most scientific figures use 8-10 pt tick labels.
-  2. Check label_size (axis labels). Should be 1-2 pt larger than tick_size.
-  3. Check title_size. Should be 1-3 pt larger than label_size.
-  4. Check legend_fontsize. Usually equal to or 1 pt smaller than tick_size.
-  5. Common combinations:
-     - Small/compact: tick=8, label=9, title=10, legend=8
-     - Standard: tick=9, label=10, title=12, legend=9
-     - Large/presentation: tick=12, label=14, title=16, legend=11
-  - If any font size looks wrong by 1+ points, correct it.
+1. FIGURE SIZE:
+   [ ] fig_width — does this match the apparent figure width?
+   [ ] fig_height — does this match the apparent aspect ratio?
 
-LEGEND:
-  - legend_show: is there a legend visible?
-  - legend_frame: DEFAULT is false. Most scientific figures do NOT have a
-    visible border around the legend. Only set true if you can clearly see
-    a rectangular outline/border drawn around the legend. A subtle background
-    does NOT count. If the extracted value is true but you don't see an
-    obvious border box, correct it to false.
-  - legend_position: where is the legend located?
+2. FONT SIZES (use RELATIVE SIZE METHOD):
+   [ ] tick_size — look at tick labels (small numbers on axes). Usually 8-10pt.
+   [ ] label_size — axis labels. Usually 1-2pt larger than tick_size.
+   [ ] title_size — plot title. Usually 1-3pt larger than label_size.
+   [ ] legend_fontsize — legend text. Usually equal to or 1pt smaller than tick_size.
+   Common combos: tick=8/label=9/title=10/legend=8 (compact),
+   tick=9/label=10/title=12/legend=9 (standard),
+   tick=12/label=14/title=16/legend=11 (large).
+   Correct any size that is off by 1+ points.
 
-TICK SPACING:
-  - Read the tick labels on each axis. Count the numeric labels.
-  - For x-axis: what is the step between consecutive labels?
-    Example: labels "0, 2, 4, 6, 8" → x_tick_step should be 2.0
-    Example: labels "0.0, 0.5, 1.0, 1.5" → x_tick_step should be 0.5
-  - For y-axis: same logic. Read the actual numbers shown.
+3. FONT PROPERTIES:
+   [ ] font_family — serif (strokes at letter ends) vs sans-serif (clean edges)?
+   [ ] title_bold — false unless UNMISTAKABLY bold.
+   [ ] label_bold — false unless UNMISTAKABLY bold.
 
-TICK DIRECTION:
-  - Do ticks point out, in, or inout? Look carefully at the axis edges.
+4. LABEL PADDING:
+   [ ] title_pad — gap between title and plot top (typically 6).
+   [ ] xlabel_pad — gap between x-axis label and tick labels (typically 4).
+   [ ] ylabel_pad — gap between y-axis label and tick labels (typically 4).
 
-SPINES:
-  - Is each spine (top, right, bottom, left) visible or hidden?
+5. SPINES (check ALL four borders of the plot area):
+   [ ] spine_top — is there a line along the TOP edge? true/false.
+   [ ] spine_right — is there a line along the RIGHT edge? true/false.
+   [ ] spine_bottom — is there a line along the BOTTOM edge? true/false.
+   [ ] spine_left — is there a line along the LEFT edge? true/false.
+   [ ] spine_width — how thick are the visible spine lines?
 
-GRID:
-  - Is grid_on correct? Are there visible gridlines behind the data?
+6. TICKS:
+   [ ] tick_direction — "out" (away from plot), "in" (into plot), or "inout"?
+   [ ] tick_length — how long are the tick marks? (typically 3-8)
+   [ ] tick_width — how thick are the tick marks? (typically 0.5-2.0)
+
+7. TICK SPACING (read the actual axis numbers):
+   [ ] x_tick_step — step between consecutive x-axis labels.
+       Example: labels "0, 2, 4, 6" → x_tick_step = 2.0
+   [ ] y_tick_step — step between consecutive y-axis labels.
+       Example: labels "0, 0.5, 1.0, 1.5" → y_tick_step = 0.5
+
+8. AXIS SCALE:
+   [ ] x_scale — "linear" or "log" (exponential labels like 1, 10, 100)?
+   [ ] y_scale — "linear" or "log"?
+
+9. GRID:
+   [ ] grid_on — are there gridlines behind the data? true/false.
+   [ ] grid_alpha — if grid is on, how transparent? (0.1-1.0)
+   [ ] grid_width — how thick are the grid lines?
+   [ ] grid_style — solid "-", dashed "--", dotted ":", dash-dot "-."?
+
+10. LEGEND:
+    [ ] legend_show — is there a legend visible? true/false.
+    [ ] legend_frame — DEFAULT false. Only true if there is a clearly visible
+        rectangular border/outline around the legend. Subtle background does
+        NOT count as a frame.
+    [ ] legend_fontsize — size of legend text.
+    [ ] legend_position — location in the plot.
+    [ ] legend_columns — number of columns (usually 1).
+
+11. BACKGROUND:
+    [ ] background_color — white "#ffffff", gray, or other?
+
+12. COLORMAP:
+    [ ] colormap — does the palette match? (tab10, Set1, viridis, etc.)
+
+13. SERIES (for each data series):
+    [ ] color — correct hex color?
+    [ ] alpha — correct opacity?
+    [ ] line_width, line_style, marker, marker_size — correct for line/scatter?
+    [ ] edge_color, edge_width, hatch — correct for bar/patch?
 
 Reply with ONLY a JSON object — no markdown fences, no explanation.
 """
@@ -476,23 +518,113 @@ def _call_openai(b64: str, media_type: str, api_key: str,
     return _parse_json_response(response.choices[0].message.content)
 
 
+def _read_current_font_sizes(global_panel) -> dict | None:
+    """Read current font sizes from the figure for LLM calibration."""
+    gp = global_panel
+    if gp is None:
+        return None
+    try:
+        sizes = {}
+        if hasattr(gp, '_tick_size_sl'):
+            sizes["tick_size"] = round(gp._tick_size_sl.value, 1)
+        if hasattr(gp, '_label_size_sl'):
+            sizes["label_size"] = round(gp._label_size_sl.value, 1)
+        if hasattr(gp, '_title_size_sl'):
+            sizes["title_size"] = round(gp._title_size_sl.value, 1)
+        if hasattr(gp, '_legend_fontsize_sl'):
+            sizes["legend_fontsize"] = round(gp._legend_fontsize_sl.value, 1)
+        return sizes if sizes else None
+    except Exception:
+        return None
+
+
 def extract_style(image_bytes: bytes, suffix: str,
                   provider: str, api_key: str,
-                  model: str | None = None) -> dict:
+                  model: str | None = None,
+                  current_font_sizes: dict | None = None) -> dict:
     """Route to correct provider, return parsed style dict."""
     if not api_key:
         raise ValueError("API key is required.")
 
     b64, media_type = _encode_image(image_bytes, suffix)
 
+    # Build prompt with optional font size calibration context
+    prompt = EXTRACTION_PROMPT
+    if current_font_sizes:
+        hint = (
+            "\n\nCALIBRATION CONTEXT — The current figure uses these font sizes "
+            "(in points). Use them as a reference anchor to judge whether the "
+            "reference image uses similar, larger, or smaller fonts. Adjust "
+            "each size accordingly:\n"
+        )
+        for k, v in current_font_sizes.items():
+            hint += f"  - Current {k}: {v} pt\n"
+        hint += (
+            "If the reference image text looks SIMILAR in size to these values, "
+            "use values close to them. If it looks noticeably SMALLER, reduce by "
+            "1-3 pt. If noticeably LARGER, increase by 1-3 pt. "
+            "Do NOT deviate more than necessary.\n"
+        )
+        prompt = prompt + hint
+
     if provider == "anthropic":
         kw = {"model": model} if model else {}
-        return _call_anthropic(b64, media_type, api_key, **kw)
+        result = _call_anthropic(b64, media_type, api_key, prompt=prompt, **kw)
     elif provider == "openai":
         kw = {"model": model} if model else {}
-        return _call_openai(b64, media_type, api_key, **kw)
+        result = _call_openai(b64, media_type, api_key, prompt=prompt, **kw)
     else:
         raise ValueError(f"Unknown provider: {provider!r}")
+
+    # Ensure every global parameter is present (fill omitted fields)
+    _ensure_global_fields(result)
+    return result
+
+
+# Required global fields with sensible defaults if omitted by the LLM.
+# This ensures every controllable parameter is always present.
+_GLOBAL_DEFAULTS = {
+    "font_family": "Arial",
+    "title_size": 12.0,
+    "title_bold": False,
+    "title_pad": 6.0,
+    "label_size": 10.0,
+    "label_bold": False,
+    "xlabel_pad": 4.0,
+    "ylabel_pad": 4.0,
+    "tick_size": 10.0,
+    "spine_top": False,
+    "spine_right": False,
+    "spine_bottom": True,
+    "spine_left": True,
+    "spine_width": 1.0,
+    "tick_direction": "out",
+    "tick_length": 5.0,
+    "tick_width": 1.0,
+    "x_tick_step": 0,
+    "y_tick_step": 0,
+    "x_scale": "linear",
+    "y_scale": "linear",
+    "grid_on": False,
+    "grid_alpha": 0.3,
+    "grid_width": 0.5,
+    "grid_style": "--",
+    "legend_show": True,
+    "legend_frame": False,
+    "legend_fontsize": 10.0,
+    "legend_position": "upper right",
+    "legend_columns": 1,
+    "background_color": "#ffffff",
+}
+
+
+def _ensure_global_fields(result: dict) -> None:
+    """Fill in any missing global fields with defaults so every parameter
+    is always present in the result. Modifies *result* in place."""
+    g = result.setdefault("global", {})
+    for key, default in _GLOBAL_DEFAULTS.items():
+        if key not in g:
+            g[key] = default
 
 
 def assess_style(ref_b64: str, ref_media: str,
@@ -922,9 +1054,11 @@ def create_ai_import_section(global_panel, canvas,
             _state["ref_b64"] = ref_b64
             _state["ref_media"] = ref_media
 
-            # Pass 1: extract style
+            # Pass 1: extract style (with current font sizes as calibration)
             mdl = model_dd.value
-            result = extract_style(content, suffix, prov, api_key, model=mdl)
+            cur_fonts = _read_current_font_sizes(global_panel)
+            result = extract_style(content, suffix, prov, api_key,
+                                   model=mdl, current_font_sizes=cur_fonts)
             _state["last_result"] = result
             apply_ai_style(result, global_panel, canvas, artist_panels)
 
@@ -932,34 +1066,33 @@ def create_ai_import_section(global_panel, canvas,
             status.value = "<i>Pass 2: Assessing parameters...</i>"
 
             # Pass 2: assessment — verify extracted JSON against reference
+            corrected = False
             try:
                 corrections = assess_style(
                     ref_b64, ref_media, result, prov, api_key, model=mdl)
                 if corrections:
-                    # Merge corrections into result and re-apply
                     _merge_corrections(result, corrections)
                     apply_ai_style(result, global_panel, canvas, artist_panels)
-                    status.value = (
-                        f"<span style='color:green'>"
-                        f"Style applied with corrections! "
-                        f"Detected <b>{result.get('plot_type', '?')}</b> "
-                        f"with {n_series} series.</span>"
-                    )
-                else:
-                    status.value = (
-                        f"<span style='color:green'>"
-                        f"Style applied! Detected "
-                        f"<b>{result.get('plot_type', '?')}</b> "
-                        f"with {n_series} series.</span>"
-                    )
+                    corrected = True
             except Exception:
-                # Verification failed — first pass result still applied
-                status.value = (
-                    f"<span style='color:green'>"
-                    f"Style applied! Detected "
-                    f"<b>{result.get('plot_type', '?')}</b> "
-                    f"with {n_series} series.</span>"
-                )
+                pass  # Verification failed — first pass result still applied
+
+            # Build status with collapsible details
+            _state["last_result"] = result  # update after corrections
+            label = "with corrections" if corrected else ""
+            g = result.get("global", {})
+            details_json = json.dumps(g, indent=2)
+            status.value = (
+                f"<span style='color:green'>"
+                f"Style applied{' ' + label if label else ''}! "
+                f"Detected <b>{result.get('plot_type', '?')}</b> "
+                f"with {n_series} series.</span>"
+                f"<details><summary style='cursor:pointer;color:#666;"
+                f"font-size:11px'>Show extracted parameters</summary>"
+                f"<pre style='font-size:10px;max-height:300px;"
+                f"overflow:auto;background:#f5f5f5;padding:4px;"
+                f"margin-top:4px'>{details_json}</pre></details>"
+            )
 
             post_extract_box.layout.display = ""
         except ImportError as e:
