@@ -225,14 +225,33 @@ class TestApplyGlobalStyle:
 
 
 class TestApplySeriesStyles:
-    def test_apply_color_and_alpha(self):
-        """Series color and alpha are applied to panel attributes."""
+    @staticmethod
+    def _make_line_panel(color="#000000", alpha=1.0, linewidth=1.0,
+                         marker="", markersize=4.0):
+        """Create a mock panel with a real Line2D artist."""
+        from matplotlib.lines import Line2D
+        line = Line2D([0], [0], color=color, alpha=alpha,
+                      linewidth=linewidth, marker=marker,
+                      markersize=markersize)
         panel = MagicMock()
-        panel._color = "#000000"
-        panel._alpha = 1.0
-        panel._line_width = 1.0
-        panel._marker = ""
-        panel._marker_size = 4.0
+        panel._group.artists = [line]
+        return panel, line
+
+    @staticmethod
+    def _make_patch_panel(facecolor="#000000", alpha=1.0,
+                          edgecolor="#000", linewidth=1.0, hatch=""):
+        """Create a mock panel with a real Patch artist."""
+        from matplotlib.patches import Rectangle
+        patch = Rectangle((0, 0), 1, 1, facecolor=facecolor,
+                          alpha=alpha, edgecolor=edgecolor,
+                          linewidth=linewidth, hatch=hatch)
+        panel = MagicMock()
+        panel._group.artists = [patch]
+        return panel, patch
+
+    def test_apply_color_and_alpha(self):
+        """Series color and alpha are applied to matplotlib artists."""
+        panel, line = self._make_line_panel()
 
         series = [{
             "color": "#ff0000",
@@ -250,20 +269,16 @@ class TestApplySeriesStyles:
             apply_ai_style(ai_result, mock_global, mock_canvas,
                            artist_panels=[panel])
 
-        assert panel._color == "#ff0000"
-        assert panel._alpha == 0.5
-        assert panel._line_width == 3.0
-        assert panel._marker == "^"
-        assert panel._marker_size == 8.0
+        from matplotlib.colors import to_hex
+        assert to_hex(line.get_color()) == "#ff0000"
+        assert line.get_alpha() == 0.5
+        assert line.get_linewidth() == 3.0
+        assert line.get_marker() == "^"
+        assert line.get_markersize() == 8.0
 
     def test_apply_hatch_and_edge(self):
-        """Hatch and edge properties applied when panel has them."""
-        panel = MagicMock()
-        panel._color = "#000"
-        panel._alpha = 1.0
-        panel._hatch = ""
-        panel._edge_color = "#000"
-        panel._edge_width = 1.0
+        """Hatch and edge properties applied to Patch artists."""
+        panel, rect = self._make_patch_panel()
 
         series = [{
             "color": "#aabbcc",
@@ -281,19 +296,19 @@ class TestApplySeriesStyles:
             apply_ai_style(ai_result, mock_global, mock_canvas,
                            artist_panels=[panel])
 
-        assert panel._hatch == "//"
-        assert panel._edge_color == "#112233"
-        assert panel._edge_width == 2.0
+        from matplotlib.colors import to_hex
+        assert to_hex(rect.get_facecolor()) == "#aabbcc"
+        assert rect.get_hatch() == "//"
+        assert to_hex(rect.get_edgecolor()) == "#112233"
+        assert rect.get_linewidth() == 2.0
 
     def test_skip_extra_series(self):
         """More series than panels → extra series are silently skipped."""
-        panel = MagicMock()
-        panel._color = "#000"
-        panel._alpha = 1.0
+        panel, line = self._make_line_panel()
 
         series = [
-            {"color": "#111", "alpha": 0.9},
-            {"color": "#222", "alpha": 0.8},  # No matching panel
+            {"color": "#111111", "alpha": 0.9},
+            {"color": "#222222", "alpha": 0.8},  # No matching panel
         ]
 
         ai_result = {"global": {}, "series": series}
@@ -304,16 +319,15 @@ class TestApplySeriesStyles:
             apply_ai_style(ai_result, mock_global, mock_canvas,
                            artist_panels=[panel])
 
-        assert panel._color == "#111"
+        from matplotlib.colors import to_hex
+        assert to_hex(line.get_color()) == "#111111"
 
     def test_null_values_skipped(self):
-        """Null values in series don't overwrite panel attrs."""
-        panel = MagicMock()
-        panel._color = "#original"
-        panel._alpha = 0.9
-        panel._line_width = 2.0
+        """Null values in series don't overwrite artist properties."""
+        panel, line = self._make_line_panel(
+            color="#abcdef", alpha=0.9, linewidth=2.0)
 
-        series = [{"color": "#new", "alpha": None, "line_width": None}]
+        series = [{"color": "#ff1234", "alpha": None, "line_width": None}]
 
         ai_result = {"global": {}, "series": series}
         mock_global = MagicMock()
@@ -323,9 +337,10 @@ class TestApplySeriesStyles:
             apply_ai_style(ai_result, mock_global, mock_canvas,
                            artist_panels=[panel])
 
-        assert panel._color == "#new"
-        assert panel._alpha == 0.9  # unchanged
-        assert panel._line_width == 2.0  # unchanged
+        from matplotlib.colors import to_hex
+        assert to_hex(line.get_color()) == "#ff1234"
+        assert line.get_alpha() == 0.9  # unchanged
+        assert line.get_linewidth() == 2.0  # unchanged
 
 
 # ---------------------------------------------------------------------------

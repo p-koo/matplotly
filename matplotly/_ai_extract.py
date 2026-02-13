@@ -169,12 +169,33 @@ FONTS: Estimate point sizes by comparing text to the plot area.
   - Identify the font family: serif fonts (Times, Computer Modern) have small
     strokes at letter ends; sans-serif fonts (Arial, Helvetica) do not.
 
+FONT STYLE: Check if title and axis labels are bold or italic.
+  - If the title text appears thicker/heavier than normal, set title_bold=true.
+  - If axis label text appears thicker/heavier, set label_bold=true.
+
+LABEL PADDING: Estimate spacing between labels and the axes.
+  - title_pad is the gap between the title and the top of the plot (typically 6).
+  - xlabel_pad / ylabel_pad is the gap between axis labels and tick labels
+    (typically 4).
+
 TICKS: Look very carefully at tick marks on the axes.
   - "out" = ticks point outward away from the plot area (most common in
     scientific figures)
   - "in" = ticks point inward into the plot area
   - "inout" = ticks cross the axis line in both directions
   - If you cannot see tick marks at all, use "out" as default.
+
+TICK SPACING: THIS IS CRITICAL. Read the numeric labels on each axis carefully
+  to determine the exact step between consecutive major ticks.
+  - Example: y-axis labels 0, 0.5, 1.0, 1.5 → y_tick_step = 0.5
+  - Example: x-axis labels 0, 2, 4, 6, 8, 10 → x_tick_step = 2.0
+  - Example: x-axis labels 0, 1, 2, 3 → x_tick_step = 1.0
+  - Count the number of ticks to verify: n_ticks = (max - min) / step + 1.
+  - Use 0 only if you truly cannot read the tick labels.
+
+AXIS SCALE: Check if axes use linear or logarithmic scale.
+  - If tick labels increase exponentially (1, 10, 100, 1000) → "log"
+  - Most plots use "linear" (default).
 
 SPINES: Check each of the four borders of the plot area.
   - Many scientific plots hide the top and right spines (spine_top=false,
@@ -190,6 +211,11 @@ LEGEND: Look carefully for a legend box in the plot.
   - If there is no legend at all, set legend_show=false.
   - If there is a legend, check if it has a visible border (legend_frame).
   - Estimate the legend font size relative to the axis labels.
+  - Identify the legend position: where is it in the plot?
+    Valid positions: "upper right", "upper left", "lower left", "lower right",
+    "right", "center left", "center right", "lower center", "upper center",
+    "center", "outside_right", "outside_upper_right".
+  - Count the number of columns in the legend (usually 1).
 
 COLORS: Use exact hex color values, not names. Sample the actual pixel color
   from each data series. Common scientific palettes:
@@ -208,7 +234,12 @@ Schema:
   "global": {
     "font_family": "<serif or sans-serif font name, e.g. Arial, Times New Roman, Helvetica>",
     "title_size": <float pt>,
+    "title_bold": <bool>,
+    "title_pad": <float, typically 6>,
     "label_size": <float pt>,
+    "label_bold": <bool>,
+    "xlabel_pad": <float, typically 4>,
+    "ylabel_pad": <float, typically 4>,
     "tick_size": <float pt>,
     "spine_top": <bool>,
     "spine_right": <bool>,
@@ -218,13 +249,19 @@ Schema:
     "tick_direction": "<in|out|inout>",
     "tick_length": <float, typically 3-8>,
     "tick_width": <float, typically 0.5-2.0>,
+    "x_tick_step": <float — step between x-axis ticks, 0 for auto>,
+    "y_tick_step": <float — step between y-axis ticks, 0 for auto>,
+    "x_scale": "<linear|log|symlog>",
+    "y_scale": "<linear|log|symlog>",
     "grid_on": <bool>,
     "grid_alpha": <float 0-1>,
     "grid_width": <float>,
     "grid_style": "<-|--|:-|-.>",
     "legend_show": <bool>,
+    "legend_position": "<position string from list above>",
     "legend_frame": <bool - does the legend have a visible border box?>,
     "legend_fontsize": <float pt>,
+    "legend_columns": <int, usually 1>,
     "background_color": "<hex>",
     "colormap": "<valid matplotlib colormap name like tab10, Set1, viridis, etc.>"
   },
@@ -250,6 +287,8 @@ Rules:
 - Examine the image carefully for colors, font styles, and axis details.
 - For tick_direction, look at whether ticks extend outward or inward from the
   axis line. Default to "out" if unclear.
+- For x_tick_step and y_tick_step, read the actual tick labels on each axis.
+  This is one of the most important fields — get the exact spacing right.
 - For colormap, only use valid matplotlib names (tab10, Set1, viridis, plasma,
   etc.). Never output "custom".
 - Use null for properties that don't apply to the series type.
@@ -267,11 +306,16 @@ fields that need correction. If a property already matches, do NOT include it.
 Check these specific things:
 - Figure aspect ratio / proportions
 - Font sizes: are title, axis labels, tick labels, and legend text the right size?
+- Font weight: is title or label bold when it should/shouldn't be?
+- Label padding: is spacing between labels and axes correct?
 - Tick direction: do ticks point the same way (in/out/inout)?
 - Tick length and width
+- Tick spacing: do x and y axes have the same step between major ticks?
+  Count the ticks to verify.
+- Axis scale: linear vs log matching?
 - Spine visibility: are the same spines shown/hidden?
 - Grid: is grid present/absent matching? Style and transparency?
-- Legend: visibility, border frame, font size?
+- Legend: position, visibility, border frame, font size, number of columns?
 - Background color
 - Series colors, line widths, marker styles, opacity
 
@@ -498,8 +542,10 @@ def _trigger_download(data: dict, filename: str, output_widget) -> None:
         ipy_display(Javascript(js))
 
 
-def _load_profile_json(file_bytes: bytes) -> dict:
+def _load_profile_json(file_bytes) -> dict:
     """Parse uploaded .json profile file back to AI result dict."""
+    if isinstance(file_bytes, memoryview):
+        file_bytes = bytes(file_bytes)
     return json.loads(file_bytes)
 
 
@@ -511,22 +557,27 @@ def apply_ai_style(ai_result: dict, global_panel, canvas,
                    artist_panels: list | None = None) -> dict:
     """Apply extracted style to figure.
 
-    1. Apply figsize if present
+    1. Apply figsize via layout sliders (so widgets stay in sync)
     2. Map ai_result["global"] -> profile keys -> apply_profile()
-    3. Map ai_result["series"] -> per-artist panel properties
+    3. Map ai_result["series"] -> per-artist matplotlib artists directly
     Returns the global profile dict (for optional saving).
     """
     from ._profiles import apply_profile
     import matplotlib
 
-    fig = global_panel._fig
+    gp = global_panel
 
-    # Apply figure size
+    # Apply figure size via sliders so UI stays in sync
     fig_w = ai_result.get("fig_width")
     fig_h = ai_result.get("fig_height")
-    if fig_w and fig_h:
+    if fig_w is not None and hasattr(gp, '_width_sl'):
         try:
-            fig.set_size_inches(float(fig_w), float(fig_h))
+            gp._width_sl.value = float(fig_w)
+        except (ValueError, TypeError):
+            pass
+    if fig_h is not None and hasattr(gp, '_height_sl'):
+        try:
+            gp._height_sl.value = float(fig_h)
         except (ValueError, TypeError):
             pass
 
@@ -562,7 +613,16 @@ def _apply_series_styles(series: list[dict], panels: list, canvas) -> None:
 
 
 def _apply_one_series(s: dict, panel) -> None:
-    """Apply a single series style dict to an artist panel."""
+    """Apply a single series style dict to an artist panel.
+
+    Applies directly to the matplotlib artists in panel._group.artists
+    so that changes are persistent. Also updates the panel's color sync
+    callback if available.
+    """
+    from matplotlib.lines import Line2D
+    from matplotlib.patches import Patch
+    from matplotlib.collections import PathCollection  # scatter
+
     color = s.get("color")
     alpha = s.get("alpha")
     line_width = s.get("line_width")
@@ -573,34 +633,101 @@ def _apply_one_series(s: dict, panel) -> None:
     edge_width = s.get("edge_width")
     hatch = s.get("hatch")
 
-    if color is not None and hasattr(panel, '_color'):
-        panel._color = color
-        if hasattr(panel, '_apply_color'):
-            panel._apply_color(color)
+    # Get the actual matplotlib artists
+    if not hasattr(panel, '_group'):
+        return
+    artists = panel._group.artists
 
-    if alpha is not None and hasattr(panel, '_alpha'):
-        panel._alpha = alpha
+    for artist in artists:
+        # --- Color ---
+        if color is not None:
+            try:
+                if isinstance(artist, Line2D):
+                    artist.set_color(color)
+                elif isinstance(artist, PathCollection):
+                    artist.set_facecolor(color)
+                elif isinstance(artist, Patch):
+                    artist.set_facecolor(color)
+            except Exception:
+                pass
 
-    if line_width is not None and hasattr(panel, '_line_width'):
-        panel._line_width = line_width
+        # --- Alpha ---
+        if alpha is not None:
+            try:
+                artist.set_alpha(alpha)
+            except Exception:
+                pass
 
-    if line_style is not None and hasattr(panel, '_line_style'):
-        panel._line_style = line_style
+        # --- Line width ---
+        if line_width is not None:
+            try:
+                if isinstance(artist, Line2D):
+                    artist.set_linewidth(line_width)
+                elif isinstance(artist, PathCollection):
+                    artist.set_linewidths([line_width])
+            except Exception:
+                pass
 
-    if marker is not None and hasattr(panel, '_marker'):
-        panel._marker = marker
+        # --- Line style ---
+        if line_style is not None:
+            try:
+                if isinstance(artist, Line2D):
+                    artist.set_linestyle(line_style)
+            except Exception:
+                pass
 
-    if marker_size is not None and hasattr(panel, '_marker_size'):
-        panel._marker_size = marker_size
+        # --- Marker ---
+        if marker is not None:
+            try:
+                if isinstance(artist, Line2D):
+                    artist.set_marker(marker)
+            except Exception:
+                pass
 
-    if edge_color is not None and hasattr(panel, '_edge_color'):
-        panel._edge_color = edge_color
+        # --- Marker size ---
+        if marker_size is not None:
+            try:
+                if isinstance(artist, Line2D):
+                    artist.set_markersize(marker_size)
+                elif isinstance(artist, PathCollection):
+                    artist.set_sizes([marker_size ** 2])
+            except Exception:
+                pass
 
-    if edge_width is not None and hasattr(panel, '_edge_width'):
-        panel._edge_width = edge_width
+        # --- Edge color ---
+        if edge_color is not None:
+            try:
+                if isinstance(artist, Patch):
+                    artist.set_edgecolor(edge_color)
+                elif isinstance(artist, PathCollection):
+                    artist.set_edgecolor(edge_color)
+            except Exception:
+                pass
 
-    if hatch is not None and hasattr(panel, '_hatch'):
-        panel._hatch = hatch
+        # --- Edge width ---
+        if edge_width is not None:
+            try:
+                if isinstance(artist, Patch):
+                    artist.set_linewidth(edge_width)
+                elif isinstance(artist, PathCollection):
+                    artist.set_linewidths([edge_width])
+            except Exception:
+                pass
+
+        # --- Hatch ---
+        if hatch is not None:
+            try:
+                if isinstance(artist, Patch):
+                    artist.set_hatch(hatch)
+            except Exception:
+                pass
+
+    # Update panel's color indicator/sync if available
+    if color is not None and hasattr(panel, '_update_color'):
+        try:
+            panel._update_color(color)
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------

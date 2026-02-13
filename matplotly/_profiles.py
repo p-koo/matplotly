@@ -48,6 +48,13 @@ def snapshot_from_global(global_panel) -> dict:
     data["title_size"] = round(gp._title_size_sl.value, 1)
     data["label_size"] = round(gp._label_size_sl.value, 1)
     data["tick_size"] = round(gp._tick_size_sl.value, 1)
+    # Title / label padding
+    if hasattr(gp, '_title_pad_sl'):
+        data["title_pad"] = round(gp._title_pad_sl.value, 1)
+    if hasattr(gp, '_xlabel_pad_sl'):
+        data["xlabel_pad"] = round(gp._xlabel_pad_sl.value, 1)
+    if hasattr(gp, '_ylabel_pad_sl'):
+        data["ylabel_pad"] = round(gp._ylabel_pad_sl.value, 1)
     # Spines (may not exist in multi-subplot mode)
     if hasattr(gp, '_spine_top_cb'):
         data["spine_top"] = gp._spine_top_cb.value
@@ -61,6 +68,15 @@ def snapshot_from_global(global_panel) -> dict:
         data["tick_direction"] = gp._tick_dir_dd.value
         data["tick_length"] = round(gp._tick_len_sl.value, 1)
         data["tick_width"] = round(gp._tick_width_sl.value, 1)
+    if hasattr(gp, '_x_step'):
+        data["x_tick_step"] = round(gp._x_step.value, 4)
+    if hasattr(gp, '_y_step'):
+        data["y_tick_step"] = round(gp._y_step.value, 4)
+    # Axis scale
+    if hasattr(gp, '_xscale_dd'):
+        data["x_scale"] = gp._xscale_dd.value
+    if hasattr(gp, '_yscale_dd'):
+        data["y_scale"] = gp._yscale_dd.value
     # Grid (may not exist in multi-subplot mode)
     if hasattr(gp, '_grid_toggle'):
         data["grid_on"] = gp._grid_toggle.value
@@ -72,6 +88,10 @@ def snapshot_from_global(global_panel) -> dict:
         data["legend_show"] = gp._legend_toggle.value
         data["legend_frame"] = gp._frame_toggle.value
         data["legend_fontsize"] = round(gp._legend_fontsize_sl.value, 1)
+    if hasattr(gp, '_legend_pos_dd'):
+        data["legend_position"] = gp._legend_pos_dd.value
+    if hasattr(gp, '_legend_ncol'):
+        data["legend_columns"] = gp._legend_ncol.value
     # Colormap
     if gp._cmap_panel is not None:
         data["colormap"] = gp._cmap_panel._selected
@@ -106,6 +126,25 @@ def apply_profile(data: dict, global_panel, canvas) -> None:
             gp._label_size_sl.value = data["label_size"]
         if _v("tick_size") is not None:
             gp._tick_size_sl.value = data["tick_size"]
+        # Title / label padding
+        if _v("title_pad") is not None and hasattr(gp, '_title_pad_sl'):
+            gp._title_pad_sl.value = data["title_pad"]
+        if _v("xlabel_pad") is not None and hasattr(gp, '_xlabel_pad_sl'):
+            gp._xlabel_pad_sl.value = data["xlabel_pad"]
+        if _v("ylabel_pad") is not None and hasattr(gp, '_ylabel_pad_sl'):
+            gp._ylabel_pad_sl.value = data["ylabel_pad"]
+        # Title / label bold (applied directly to figure)
+        if _v("title_bold") is not None:
+            fig = gp._fig
+            w = "bold" if data["title_bold"] else "normal"
+            for ax in fig.get_axes():
+                ax.title.set_fontweight(w)
+        if _v("label_bold") is not None:
+            fig = gp._fig
+            w = "bold" if data["label_bold"] else "normal"
+            for ax in fig.get_axes():
+                ax.xaxis.label.set_fontweight(w)
+                ax.yaxis.label.set_fontweight(w)
         # Spines (may not exist in multi-subplot mode)
         if _v("spine_top") is not None and hasattr(gp, '_spine_top_cb'):
             gp._spine_top_cb.value = data["spine_top"]
@@ -124,6 +163,18 @@ def apply_profile(data: dict, global_panel, canvas) -> None:
             gp._tick_len_sl.value = data["tick_length"]
         if _v("tick_width") is not None and hasattr(gp, '_tick_width_sl'):
             gp._tick_width_sl.value = data["tick_width"]
+        # Tick spacing (0 = auto)
+        if _v("x_tick_step") is not None and hasattr(gp, '_x_step'):
+            gp._x_step.value = data["x_tick_step"]
+        if _v("y_tick_step") is not None and hasattr(gp, '_y_step'):
+            gp._y_step.value = data["y_tick_step"]
+        # Axis scale
+        if _v("x_scale") is not None and hasattr(gp, '_xscale_dd'):
+            if data["x_scale"] in ("linear", "log", "symlog"):
+                gp._xscale_dd.value = data["x_scale"]
+        if _v("y_scale") is not None and hasattr(gp, '_yscale_dd'):
+            if data["y_scale"] in ("linear", "log", "symlog"):
+                gp._yscale_dd.value = data["y_scale"]
         # Grid (may not exist in multi-subplot mode)
         if _v("grid_on") is not None and hasattr(gp, '_grid_toggle'):
             gp._grid_toggle.value = data["grid_on"]
@@ -140,6 +191,16 @@ def apply_profile(data: dict, global_panel, canvas) -> None:
             gp._frame_toggle.value = data["legend_frame"]
         if _v("legend_fontsize") is not None and hasattr(gp, '_legend_fontsize_sl'):
             gp._legend_fontsize_sl.value = data["legend_fontsize"]
+        # Legend position and columns
+        if _v("legend_position") is not None and hasattr(gp, '_legend_pos_dd'):
+            pos = data["legend_position"]
+            valid = [v for _, v in gp._legend_pos_dd.options]
+            if pos in valid:
+                gp._legend_pos_dd.value = pos
+        if _v("legend_columns") is not None and hasattr(gp, '_legend_ncol'):
+            ncol = data["legend_columns"]
+            if isinstance(ncol, int) and 1 <= ncol <= 6:
+                gp._legend_ncol.value = ncol
         # Colormap
         if _v("colormap") is not None and gp._cmap_panel is not None:
             gp._cmap_panel.apply(data["colormap"])

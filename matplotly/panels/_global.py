@@ -1193,20 +1193,26 @@ class GlobalPanel:
         self._legend_toggle = widgets.Checkbox(
             value=has_legend, description="Show legend", indent=False)
 
-        pos_dd = widgets.Dropdown(options=positions, value=cur_loc,
+        self._legend_pos_dd = widgets.Dropdown(options=positions, value=cur_loc,
                                   description="Pos:", style=_STY,
                                   layout=_DD_MED)
-        x_sl = widgets.FloatSlider(value=round(cur_x, 2), min=-0.5, max=1.5,
-                                    step=0.02, description="X pos:", style=_STY)
-        y_sl = widgets.FloatSlider(value=round(cur_y, 2), min=-0.5, max=1.5,
-                                    step=0.02, description="Y pos:", style=_STY)
+        pos_dd = self._legend_pos_dd
+        self._legend_x_sl = widgets.FloatSlider(
+            value=round(cur_x, 2), min=-0.5, max=1.5,
+            step=0.02, description="X pos:", style=_STY)
+        self._legend_y_sl = widgets.FloatSlider(
+            value=round(cur_y, 2), min=-0.5, max=1.5,
+            step=0.02, description="Y pos:", style=_STY)
+        x_sl = self._legend_x_sl
+        y_sl = self._legend_y_sl
         self._frame_toggle = widgets.Checkbox(value=cur_frame, description="Frame",
                                               indent=False)
         self._legend_fontsize_sl = widgets.FloatSlider(
             value=cur_fontsize, min=4, max=24,
             step=0.5, description="Font sz:", style=_STY)
-        ncol = widgets.IntSlider(value=cur_ncol, min=1, max=6, step=1,
-                                  description="Cols:", style=_STY)
+        self._legend_ncol = widgets.IntSlider(value=cur_ncol, min=1, max=6,
+                                  step=1, description="Cols:", style=_STY)
+        ncol = self._legend_ncol
         self._markerfirst_cb = widgets.Checkbox(
             value=cur_markerfirst, description="Marker first", indent=False)
         self._handletextpad_sl = widgets.FloatSlider(
