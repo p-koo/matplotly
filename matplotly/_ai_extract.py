@@ -365,9 +365,24 @@ def _auto_install(package: str) -> None:
         [sys.executable, "-m", "pip", "install", "-q", package])
 
 
+_ANTHROPIC_MODELS = [
+    ("Claude Sonnet 4", "claude-sonnet-4-20250514"),
+    ("Claude Haiku 3.5", "claude-haiku-4-5-20251001"),
+]
+
+_OPENAI_MODELS = [
+    ("GPT-4o", "gpt-4o"),
+    ("GPT-4o mini", "gpt-4o-mini"),
+    ("GPT-4.1", "gpt-4.1"),
+    ("GPT-4.1 mini", "gpt-4.1-mini"),
+    ("GPT-4.1 nano", "gpt-4.1-nano"),
+]
+
+
 def _call_anthropic(b64: str, media_type: str, api_key: str,
-                    prompt: str = EXTRACTION_PROMPT) -> dict:
-    """Call Claude API with vision. Uses claude-sonnet-4-20250514."""
+                    prompt: str = EXTRACTION_PROMPT,
+                    model: str = "claude-sonnet-4-20250514") -> dict:
+    """Call Claude API with vision."""
     try:
         import anthropic
     except ImportError:
@@ -376,7 +391,7 @@ def _call_anthropic(b64: str, media_type: str, api_key: str,
 
     client = anthropic.Anthropic(api_key=api_key)
     message = client.messages.create(
-        model="claude-sonnet-4-20250514",
+        model=model,
         max_tokens=2048,
         messages=[{
             "role": "user",
@@ -400,8 +415,9 @@ def _call_anthropic(b64: str, media_type: str, api_key: str,
 
 
 def _call_openai(b64: str, media_type: str, api_key: str,
-                 prompt: str = EXTRACTION_PROMPT) -> dict:
-    """Call GPT-4o with vision."""
+                 prompt: str = EXTRACTION_PROMPT,
+                 model: str = "gpt-4o") -> dict:
+    """Call OpenAI API with vision."""
     try:
         import openai
     except ImportError:
@@ -410,7 +426,7 @@ def _call_openai(b64: str, media_type: str, api_key: str,
 
     client = openai.OpenAI(api_key=api_key)
     response = client.chat.completions.create(
-        model="gpt-4o",
+        model=model,
         max_tokens=2048,
         messages=[{
             "role": "user",
@@ -429,7 +445,8 @@ def _call_openai(b64: str, media_type: str, api_key: str,
 
 
 def extract_style(image_bytes: bytes, suffix: str,
-                  provider: str, api_key: str) -> dict:
+                  provider: str, api_key: str,
+                  model: str | None = None) -> dict:
     """Route to correct provider, return parsed style dict."""
     if not api_key:
         raise ValueError("API key is required.")
@@ -437,15 +454,18 @@ def extract_style(image_bytes: bytes, suffix: str,
     b64, media_type = _encode_image(image_bytes, suffix)
 
     if provider == "anthropic":
-        return _call_anthropic(b64, media_type, api_key)
+        kw = {"model": model} if model else {}
+        return _call_anthropic(b64, media_type, api_key, **kw)
     elif provider == "openai":
-        return _call_openai(b64, media_type, api_key)
+        kw = {"model": model} if model else {}
+        return _call_openai(b64, media_type, api_key, **kw)
     else:
         raise ValueError(f"Unknown provider: {provider!r}")
 
 
 def assess_style(ref_b64: str, ref_media: str,
-                 extracted: dict, provider: str, api_key: str) -> dict:
+                 extracted: dict, provider: str, api_key: str,
+                 model: str | None = None) -> dict:
     """Assessment pass: verify extracted JSON against the reference image.
 
     Sends the reference image + the extracted JSON to the LLM and asks it
@@ -455,9 +475,11 @@ def assess_style(ref_b64: str, ref_media: str,
     prompt = ASSESSMENT_PROMPT + "\n\nExtracted parameters:\n" + json_str
 
     if provider == "anthropic":
-        return _call_anthropic(ref_b64, ref_media, api_key, prompt=prompt)
+        kw = {"model": model} if model else {}
+        return _call_anthropic(ref_b64, ref_media, api_key, prompt=prompt, **kw)
     elif provider == "openai":
-        return _call_openai(ref_b64, ref_media, api_key, prompt=prompt)
+        kw = {"model": model} if model else {}
+        return _call_openai(ref_b64, ref_media, api_key, prompt=prompt, **kw)
     else:
         raise ValueError(f"Unknown provider: {provider!r}")
 
@@ -684,13 +706,32 @@ def create_ai_import_section(global_panel, canvas,
 
     # --- Provider dropdown ---
     provider_dd = widgets.Dropdown(
-        options=[("OpenAI (GPT-4o)", "openai"),
-                 ("Anthropic (Claude)", "anthropic")],
+        options=[("OpenAI", "openai"),
+                 ("Anthropic", "anthropic")],
         value="openai",
         description="Provider:",
         style={"description_width": "60px"},
-        layout=widgets.Layout(width="220px"),
+        layout=widgets.Layout(width="180px"),
     )
+
+    # --- Model dropdown ---
+    model_dd = widgets.Dropdown(
+        options=_OPENAI_MODELS,
+        value=_OPENAI_MODELS[0][1],
+        description="Model:",
+        style={"description_width": "50px"},
+        layout=widgets.Layout(width="180px"),
+    )
+
+    def _on_provider_change(change):
+        prov = change["new"]
+        if prov == "openai":
+            model_dd.options = _OPENAI_MODELS
+            model_dd.value = _OPENAI_MODELS[0][1]
+        else:
+            model_dd.options = _ANTHROPIC_MODELS
+            model_dd.value = _ANTHROPIC_MODELS[0][1]
+    provider_dd.observe(_on_provider_change, names="value")
 
     # --- API key field with eye toggle ---
     key_field = widgets.Password(
@@ -842,7 +883,8 @@ def create_ai_import_section(global_panel, canvas,
             _state["ref_media"] = ref_media
 
             # Pass 1: extract style
-            result = extract_style(content, suffix, prov, api_key)
+            mdl = model_dd.value
+            result = extract_style(content, suffix, prov, api_key, model=mdl)
             _state["last_result"] = result
             apply_ai_style(result, global_panel, canvas, artist_panels)
 
@@ -852,7 +894,7 @@ def create_ai_import_section(global_panel, canvas,
             # Pass 2: assessment — verify extracted JSON against reference
             try:
                 corrections = assess_style(
-                    ref_b64, ref_media, result, prov, api_key)
+                    ref_b64, ref_media, result, prov, api_key, model=mdl)
                 if corrections:
                     # Merge corrections into result and re-apply
                     _merge_corrections(result, corrections)
@@ -924,7 +966,8 @@ def create_ai_import_section(global_panel, canvas,
 
     # --- Assemble ---
     section = widgets.VBox([
-        provider_dd,
+        widgets.HBox([provider_dd, model_dd],
+                     layout=widgets.Layout(gap="4px")),
         widgets.HBox([key_box, save_key_btn],
                      layout=widgets.Layout(gap="4px", align_items="center")),
         image_upload,
