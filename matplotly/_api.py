@@ -308,6 +308,11 @@ class PlotBuildSession:
 
     def display(self) -> None:
         display(self._outer)
+        # Re-render after display so the PNG is pushed into an already-live
+        # Output widget.  Without this, the frontend may silently drop the
+        # buffered image when the widget tree is large and comm messages
+        # arrive before all views are constructed.
+        self._canvas.force_redraw()
 
     # ------------------------------------------------------------------
     # Save dialog

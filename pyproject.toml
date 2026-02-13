@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "matplotly"
-version = "0.1.3"
+version = "0.1.4"
 description = "Jupyter-native interactive matplotlib figure editor"
 readme = "README.md"
 license = "MIT"
