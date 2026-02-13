@@ -158,6 +158,22 @@ class TestEncodeImage:
         b64, media_type = _encode_image(jpeg_bytes, ".jpeg")
         assert media_type == "image/jpeg"
 
+    def test_encode_pdf(self):
+        """PDF bytes → PNG via PyMuPDF."""
+        import fitz
+        # Create a minimal 1-page PDF with PyMuPDF
+        doc = fitz.open()
+        page = doc.new_page(width=72, height=72)
+        page.draw_rect(fitz.Rect(10, 10, 62, 62), color=(1, 0, 0))
+        pdf_bytes = doc.tobytes()
+        doc.close()
+
+        b64, media_type = _encode_image(pdf_bytes, ".pdf")
+        assert media_type == "image/png"
+        decoded = base64.standard_b64decode(b64)
+        # Should start with PNG signature
+        assert decoded[:4] == b'\x89PNG'
+
     def test_unsupported_format(self):
         with pytest.raises(ValueError, match="Unsupported"):
             _encode_image(b"data", ".bmp")

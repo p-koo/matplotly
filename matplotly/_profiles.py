@@ -152,104 +152,11 @@ def apply_profile(data: dict, global_panel, canvas) -> None:
 
 def create_profiles_panel(global_panel, canvas,
                           artist_panels=None) -> widgets.Widget:
-    """Build the Profiles accordion section."""
-    _ensure_dir()
+    """Build the Profiles accordion section.
 
-    saved = _list_profiles()
-    options = saved if saved else ["(none)"]
-
-    profile_dd = widgets.Dropdown(
-        options=options, description="Profile:",
-        style={"description_width": "48px"},
-        layout=widgets.Layout(width="210px"))
-
-    load_btn = widgets.Button(
-        description="Load", icon="download",
-        button_style="info",
-        layout=widgets.Layout(width="70px"))
-
-    delete_btn = widgets.Button(
-        description="", icon="trash",
-        button_style="danger",
-        layout=widgets.Layout(width="34px"),
-        tooltip="Delete selected profile")
-
-    name_field = widgets.Text(
-        value="", placeholder="profile name",
-        style={"description_width": "48px"},
-        layout=widgets.Layout(width="170px"))
-
-    save_btn = widgets.Button(
-        description="Save", icon="upload",
-        button_style="success",
-        layout=widgets.Layout(width="70px"))
-
-    status = widgets.HTML("")
-
-    def _refresh_dropdown():
-        saved = _list_profiles()
-        profile_dd.options = saved if saved else ["(none)"]
-
-    def _on_load(_btn):
-        name = profile_dd.value
-        if not name or name == "(none)":
-            status.value = "<span style='color:#888'>No profile selected.</span>"
-            return
-        try:
-            data = _read_profile(name)
-            apply_profile(data, global_panel, canvas)
-            status.value = (
-                f"<span style='color:green'>Loaded <b>{name}</b></span>")
-        except Exception as e:
-            status.value = f"<span style='color:red'>Error: {e}</span>"
-
-    def _on_save(_btn):
-        name = name_field.value.strip()
-        if not name:
-            status.value = "<span style='color:red'>Enter a profile name.</span>"
-            return
-        # Sanitize filename
-        safe = "".join(c for c in name if c.isalnum() or c in " _-").strip()
-        if not safe:
-            status.value = "<span style='color:red'>Invalid name.</span>"
-            return
-        try:
-            data = snapshot_from_global(global_panel)
-            path = _save_profile(safe, data)
-            _refresh_dropdown()
-            profile_dd.value = safe
-            name_field.value = ""
-            status.value = (
-                f"<span style='color:green'>Saved <b>{safe}</b></span>")
-        except Exception as e:
-            status.value = f"<span style='color:red'>Error: {e}</span>"
-
-    def _on_delete(_btn):
-        name = profile_dd.value
-        if not name or name == "(none)":
-            return
-        try:
-            _delete_profile(name)
-            _refresh_dropdown()
-            status.value = (
-                f"<span style='color:#888'>Deleted <b>{name}</b></span>")
-        except Exception as e:
-            status.value = f"<span style='color:red'>Error: {e}</span>"
-
-    load_btn.on_click(_on_load)
-    save_btn.on_click(_on_save)
-    delete_btn.on_click(_on_delete)
-
-    # --- AI Style Import sub-section ---
+    Contains AI Style Import and Saved Profiles (load/save/delete).
+    """
     from ._ai_extract import create_ai_import_section
-    ai_section = create_ai_import_section(
-        global_panel, canvas, artist_panels=artist_panels)
 
-    return widgets.VBox([
-        widgets.HBox([profile_dd, load_btn, delete_btn],
-                     layout=widgets.Layout(gap="4px", align_items="center")),
-        widgets.HBox([name_field, save_btn],
-                     layout=widgets.Layout(gap="4px", align_items="center")),
-        status,
-        ai_section,
-    ])
+    return create_ai_import_section(
+        global_panel, canvas, artist_panels=artist_panels)

@@ -2,6 +2,9 @@
 
 Supports Anthropic (Claude) and OpenAI (GPT-4o) as vision LLM providers.
 API keys are persisted in ~/.matplotly/config.json.
+
+Two-pass extraction: first pass extracts style, second pass compares the
+modified figure against the reference and corrects discrepancies.
 """
 from __future__ import annotations
 
@@ -66,8 +69,8 @@ def _encode_image(file_bytes: bytes, suffix: str) -> tuple[str, str]:
     """Return (base64_string, media_type) for the image.
 
     Native formats (.png, .jpg, .gif, .webp) are encoded directly.
-    PDF and TIFF are converted to PNG via Pillow (first page for PDF).
-    Falls back gracefully if Pillow is not installed.
+    PDF is converted to PNG via PyMuPDF (preferred) or pdf2image.
+    TIFF is converted to PNG via Pillow.
     """
     suffix = suffix.lower()
 
@@ -75,37 +78,20 @@ def _encode_image(file_bytes: bytes, suffix: str) -> tuple[str, str]:
         b64 = base64.standard_b64encode(file_bytes).decode()
         return b64, _NATIVE_TYPES[suffix]
 
-    if suffix in _CONVERT_TYPES:
+    # PDF: try PyMuPDF first (no Pillow needed), then pdf2image
+    if suffix == ".pdf":
+        return _encode_pdf(file_bytes)
+
+    # TIFF: convert via Pillow
+    if suffix in (".tiff", ".tif"):
         try:
             from PIL import Image
         except ImportError:
             raise ImportError(
-                "Pillow is required to process PDF/TIFF images. "
+                "Pillow is required to process TIFF images. "
                 "Install with: pip install Pillow"
             )
-
-        if suffix == ".pdf":
-            try:
-                from pdf2image import convert_from_bytes
-                images = convert_from_bytes(file_bytes, first_page=1, last_page=1)
-                img = images[0]
-            except ImportError:
-                # Fallback: try fitz (PyMuPDF)
-                try:
-                    import fitz
-                    doc = fitz.open(stream=file_bytes, filetype="pdf")
-                    page = doc[0]
-                    pix = page.get_pixmap(dpi=150)
-                    img = Image.open(io.BytesIO(pix.tobytes("png")))
-                    doc.close()
-                except ImportError:
-                    raise ImportError(
-                        "PDF support requires pdf2image or PyMuPDF. "
-                        "Install with: pip install pdf2image  or  pip install PyMuPDF"
-                    )
-        else:
-            img = Image.open(io.BytesIO(file_bytes))
-
+        img = Image.open(io.BytesIO(file_bytes))
         buf = io.BytesIO()
         img.convert("RGB").save(buf, format="PNG")
         b64 = base64.standard_b64encode(buf.getvalue()).decode()
@@ -114,33 +100,133 @@ def _encode_image(file_bytes: bytes, suffix: str) -> tuple[str, str]:
     raise ValueError(f"Unsupported image format: {suffix}")
 
 
+def _encode_pdf(file_bytes: bytes) -> tuple[str, str]:
+    """Convert first page of a PDF to base64 PNG.
+
+    Tries PyMuPDF first (self-contained, no system deps), then
+    falls back to pdf2image (requires poppler).
+    """
+    # Try PyMuPDF (fitz) — single pip install, no system deps
+    try:
+        import fitz
+        doc = fitz.open(stream=file_bytes, filetype="pdf")
+        page = doc[0]
+        pix = page.get_pixmap(dpi=150)
+        png_bytes = pix.tobytes("png")
+        doc.close()
+        b64 = base64.standard_b64encode(png_bytes).decode()
+        return b64, "image/png"
+    except ImportError:
+        pass
+
+    # Try pdf2image (requires poppler system library)
+    try:
+        from pdf2image import convert_from_bytes
+        from PIL import Image
+        images = convert_from_bytes(file_bytes, first_page=1, last_page=1)
+        buf = io.BytesIO()
+        images[0].convert("RGB").save(buf, format="PNG")
+        b64 = base64.standard_b64encode(buf.getvalue()).decode()
+        return b64, "image/png"
+    except ImportError:
+        pass
+
+    raise ImportError(
+        "PDF support requires PyMuPDF or pdf2image. "
+        "Install with: pip install PyMuPDF"
+    )
+
+
+def _capture_figure_png(fig) -> bytes:
+    """Render the current figure to PNG bytes for verification."""
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=150, bbox_inches="tight",
+                facecolor=fig.get_facecolor())
+    buf.seek(0)
+    return buf.read()
+
+
 # ---------------------------------------------------------------------------
-# LLM prompt
+# LLM prompts
 # ---------------------------------------------------------------------------
 
 EXTRACTION_PROMPT = """\
-You are a scientific-figure style analyst. Examine the uploaded plot image and \
-extract its visual style as JSON. Reply with ONLY a JSON object — no markdown \
-fences, no commentary.
+You are a scientific-figure style analyst. Examine the uploaded plot image \
+carefully and extract its visual style as JSON. Reply with ONLY a JSON object \
+— no markdown fences, no explanation.
 
-Use this exact schema:
+IMPORTANT — look closely at these visual details:
 
+FIGURE SIZE: Estimate the figure dimensions in inches.
+  - Single-column journal figures are typically 3.5" wide.
+  - Double-column figures are typically 7" wide.
+  - Presentation slides are typically 10" wide.
+  - Estimate height from the aspect ratio you observe.
+
+FONTS: Estimate point sizes by comparing text to the plot area.
+  - Title text is typically 12-18 pt. Axis labels are typically 10-14 pt.
+  - Tick labels are typically 8-12 pt. Legend text is typically 8-11 pt.
+  - Identify the font family: serif fonts (Times, Computer Modern) have small
+    strokes at letter ends; sans-serif fonts (Arial, Helvetica) do not.
+
+TICKS: Look very carefully at tick marks on the axes.
+  - "out" = ticks point outward away from the plot area (most common in
+    scientific figures)
+  - "in" = ticks point inward into the plot area
+  - "inout" = ticks cross the axis line in both directions
+  - If you cannot see tick marks at all, use "out" as default.
+
+SPINES: Check each of the four borders of the plot area.
+  - Many scientific plots hide the top and right spines (spine_top=false,
+    spine_right=false). Look carefully — if there is no line along the top
+    or right edge, set to false.
+
+GRID: Look for light horizontal/vertical lines behind the data.
+  - If there are no grid lines, set grid_on=false.
+  - If grid is present, estimate its transparency (grid_alpha) and whether
+    lines are solid "-", dashed "--", dotted ":", or dash-dot "-.".
+
+LEGEND: Look carefully for a legend box in the plot.
+  - If there is no legend at all, set legend_show=false.
+  - If there is a legend, check if it has a visible border (legend_frame).
+  - Estimate the legend font size relative to the axis labels.
+
+COLORS: Use exact hex color values, not names. Sample the actual pixel color
+  from each data series. Common scientific palettes:
+  - tab10: #1f77b4, #ff7f0e, #2ca02c, #d62728, #9467bd, ...
+  - Set1: #e41a1c, #377eb8, #4daf4a, #984ea3, #ff7f00, ...
+
+BACKGROUND: Check if the plot background is white (#ffffff), light gray
+  (#f0f0f0), or another color.
+
+Schema:
 {
   "plot_type": "<line|scatter|bar|histogram|boxplot|violin|heatmap|errorbar|mixed>",
   "num_series": <int>,
+  "fig_width": <float inches>,
+  "fig_height": <float inches>,
   "global": {
-    "font_family": "<str>",
-    "title_size": <float>, "label_size": <float>, "tick_size": <float>,
-    "spine_top": <bool>, "spine_right": <bool>,
-    "spine_bottom": <bool>, "spine_left": <bool>,
-    "spine_width": <float>,
+    "font_family": "<serif or sans-serif font name, e.g. Arial, Times New Roman, Helvetica>",
+    "title_size": <float pt>,
+    "label_size": <float pt>,
+    "tick_size": <float pt>,
+    "spine_top": <bool>,
+    "spine_right": <bool>,
+    "spine_bottom": <bool>,
+    "spine_left": <bool>,
+    "spine_width": <float, typically 0.5-2.0>,
     "tick_direction": "<in|out|inout>",
-    "tick_length": <float>, "tick_width": <float>,
-    "grid_on": <bool>, "grid_alpha": <float>, "grid_width": <float>,
+    "tick_length": <float, typically 3-8>,
+    "tick_width": <float, typically 0.5-2.0>,
+    "grid_on": <bool>,
+    "grid_alpha": <float 0-1>,
+    "grid_width": <float>,
     "grid_style": "<-|--|:-|-.>",
-    "legend_show": <bool>, "legend_frame": <bool>, "legend_fontsize": <float>,
+    "legend_show": <bool>,
+    "legend_frame": <bool - does the legend have a visible border box?>,
+    "legend_fontsize": <float pt>,
     "background_color": "<hex>",
-    "colormap": "<matplotlib colormap name or 'custom'>"
+    "colormap": "<valid matplotlib colormap name like tab10, Set1, viridis, etc.>"
   },
   "series": [
     {
@@ -150,23 +236,50 @@ Use this exact schema:
       "label": "<str or null>",
       "line_width": <float or null>,
       "line_style": "<-|--|:-|-. or null>",
-      "marker": "<matplotlib marker char or null>",
+      "marker": "<matplotlib marker: o s ^ D v + x * or null>",
       "marker_size": <float or null>,
       "edge_color": "<hex or null>",
       "edge_width": <float or null>,
-      "hatch": "<str or null>",
+      "hatch": "</ \\\\ | - + x or null>",
       "fill": <bool or null>
     }
   ]
 }
 
 Rules:
-- Detect the plot type and number of data series.
-- For each series, extract color (as hex), opacity, line/marker/bar properties.
-- For global settings, estimate font sizes, spine visibility, grid, legend, and background.
+- Examine the image carefully for colors, font styles, and axis details.
+- For tick_direction, look at whether ticks extend outward or inward from the
+  axis line. Default to "out" if unclear.
+- For colormap, only use valid matplotlib names (tab10, Set1, viridis, plasma,
+  etc.). Never output "custom".
 - Use null for properties that don't apply to the series type.
-- If you cannot determine a value, use a sensible default.
-- Output valid JSON only.
+- Output valid JSON only — no extra text.
+"""
+
+VERIFICATION_PROMPT = """\
+You are a scientific-figure style verification agent. You are given two images:
+1. IMAGE 1 (first image): The REFERENCE plot whose style we want to match.
+2. IMAGE 2 (second image): The CURRENT plot after applying extracted styles.
+
+Compare the two images carefully and output a JSON object containing ONLY the \
+fields that need correction. If a property already matches, do NOT include it.
+
+Check these specific things:
+- Figure aspect ratio / proportions
+- Font sizes: are title, axis labels, tick labels, and legend text the right size?
+- Tick direction: do ticks point the same way (in/out/inout)?
+- Tick length and width
+- Spine visibility: are the same spines shown/hidden?
+- Grid: is grid present/absent matching? Style and transparency?
+- Legend: visibility, border frame, font size?
+- Background color
+- Series colors, line widths, marker styles, opacity
+
+Output format — same schema as the extraction, but include ONLY fields that \
+need to change. Omit anything that already matches. If everything matches, \
+output: {}
+
+Reply with ONLY a JSON object — no markdown fences, no explanation.
 """
 
 # ---------------------------------------------------------------------------
@@ -188,9 +301,22 @@ def _parse_json_response(text: str) -> dict:
     return json.loads(text)
 
 
-def _call_anthropic(b64: str, media_type: str, api_key: str) -> dict:
+def _auto_install(package: str) -> None:
+    """Install a package into the running kernel's environment."""
+    import subprocess
+    import sys
+    subprocess.check_call(
+        [sys.executable, "-m", "pip", "install", "-q", package])
+
+
+def _call_anthropic(b64: str, media_type: str, api_key: str,
+                    prompt: str = EXTRACTION_PROMPT) -> dict:
     """Call Claude API with vision. Uses claude-sonnet-4-20250514."""
-    import anthropic
+    try:
+        import anthropic
+    except ImportError:
+        _auto_install("anthropic")
+        import anthropic
 
     client = anthropic.Anthropic(api_key=api_key)
     message = client.messages.create(
@@ -209,7 +335,7 @@ def _call_anthropic(b64: str, media_type: str, api_key: str) -> dict:
                 },
                 {
                     "type": "text",
-                    "text": EXTRACTION_PROMPT,
+                    "text": prompt,
                 },
             ],
         }],
@@ -217,9 +343,48 @@ def _call_anthropic(b64: str, media_type: str, api_key: str) -> dict:
     return _parse_json_response(message.content[0].text)
 
 
-def _call_openai(b64: str, media_type: str, api_key: str) -> dict:
+def _call_anthropic_two_images(b64_1: str, media_1: str,
+                               b64_2: str, media_2: str,
+                               api_key: str, prompt: str) -> dict:
+    """Call Claude with two images for verification."""
+    try:
+        import anthropic
+    except ImportError:
+        _auto_install("anthropic")
+        import anthropic
+
+    client = anthropic.Anthropic(api_key=api_key)
+    message = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=2048,
+        messages=[{
+            "role": "user",
+            "content": [
+                {
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": media_1,
+                               "data": b64_1},
+                },
+                {
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": media_2,
+                               "data": b64_2},
+                },
+                {"type": "text", "text": prompt},
+            ],
+        }],
+    )
+    return _parse_json_response(message.content[0].text)
+
+
+def _call_openai(b64: str, media_type: str, api_key: str,
+                 prompt: str = EXTRACTION_PROMPT) -> dict:
     """Call GPT-4o with vision."""
-    import openai
+    try:
+        import openai
+    except ImportError:
+        _auto_install("openai")
+        import openai
 
     client = openai.OpenAI(api_key=api_key)
     response = client.chat.completions.create(
@@ -234,10 +399,41 @@ def _call_openai(b64: str, media_type: str, api_key: str) -> dict:
                         "url": f"data:{media_type};base64,{b64}",
                     },
                 },
+                {"type": "text", "text": prompt},
+            ],
+        }],
+    )
+    return _parse_json_response(response.choices[0].message.content)
+
+
+def _call_openai_two_images(b64_1: str, media_1: str,
+                            b64_2: str, media_2: str,
+                            api_key: str, prompt: str) -> dict:
+    """Call GPT-4o with two images for verification."""
+    try:
+        import openai
+    except ImportError:
+        _auto_install("openai")
+        import openai
+
+    client = openai.OpenAI(api_key=api_key)
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        max_tokens=2048,
+        messages=[{
+            "role": "user",
+            "content": [
                 {
-                    "type": "text",
-                    "text": EXTRACTION_PROMPT,
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:{media_1};base64,{b64_1}"},
                 },
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:{media_2};base64,{b64_2}"},
+                },
+                {"type": "text", "text": prompt},
             ],
         }],
     )
@@ -256,6 +452,25 @@ def extract_style(image_bytes: bytes, suffix: str,
         return _call_anthropic(b64, media_type, api_key)
     elif provider == "openai":
         return _call_openai(b64, media_type, api_key)
+    else:
+        raise ValueError(f"Unknown provider: {provider!r}")
+
+
+def verify_style(ref_b64: str, ref_media: str,
+                 fig, provider: str, api_key: str) -> dict:
+    """Second pass: compare reference image to current figure, return corrections."""
+    fig_png = _capture_figure_png(fig)
+    fig_b64 = base64.standard_b64encode(fig_png).decode()
+    fig_media = "image/png"
+
+    if provider == "anthropic":
+        return _call_anthropic_two_images(
+            ref_b64, ref_media, fig_b64, fig_media,
+            api_key, VERIFICATION_PROMPT)
+    elif provider == "openai":
+        return _call_openai_two_images(
+            ref_b64, ref_media, fig_b64, fig_media,
+            api_key, VERIFICATION_PROMPT)
     else:
         raise ValueError(f"Unknown provider: {provider!r}")
 
@@ -296,13 +511,32 @@ def apply_ai_style(ai_result: dict, global_panel, canvas,
                    artist_panels: list | None = None) -> dict:
     """Apply extracted style to figure.
 
-    1. Map ai_result["global"] -> profile keys -> apply_profile()
-    2. Map ai_result["series"] -> per-artist panel properties
+    1. Apply figsize if present
+    2. Map ai_result["global"] -> profile keys -> apply_profile()
+    3. Map ai_result["series"] -> per-artist panel properties
     Returns the global profile dict (for optional saving).
     """
     from ._profiles import apply_profile
+    import matplotlib
+
+    fig = global_panel._fig
+
+    # Apply figure size
+    fig_w = ai_result.get("fig_width")
+    fig_h = ai_result.get("fig_height")
+    if fig_w and fig_h:
+        try:
+            fig.set_size_inches(float(fig_w), float(fig_h))
+        except (ValueError, TypeError):
+            pass
 
     global_data = ai_result.get("global", {})
+
+    # Drop invalid colormap names before apply_profile tries to use them
+    cmap = global_data.get("colormap")
+    if cmap is not None and cmap not in matplotlib.colormaps:
+        del global_data["colormap"]
+
     apply_profile(global_data, global_panel, canvas)
 
     series = ai_result.get("series", [])
@@ -313,12 +547,7 @@ def apply_ai_style(ai_result: dict, global_panel, canvas,
 
 
 def _apply_series_styles(series: list[dict], panels: list, canvas) -> None:
-    """Match series[i] -> panels[i] by index order.
-
-    For each panel, apply color, alpha, line_width, line_style,
-    marker, marker_size, edge_color, edge_width, hatch via
-    duck-typing (check for widget attributes before setting).
-    """
+    """Match series[i] -> panels[i] by index order."""
     orig_redraw = canvas.redraw
     canvas.redraw = lambda: None
     try:
@@ -344,43 +573,32 @@ def _apply_one_series(s: dict, panel) -> None:
     edge_width = s.get("edge_width")
     hatch = s.get("hatch")
 
-    # Color — panels store color in _color attribute
     if color is not None and hasattr(panel, '_color'):
         panel._color = color
-        # Trigger the color picker if it exists
         if hasattr(panel, '_apply_color'):
             panel._apply_color(color)
 
-    # Alpha
     if alpha is not None and hasattr(panel, '_alpha'):
         panel._alpha = alpha
 
-    # Line width — errorbar panels use _line_width
-    if line_width is not None:
-        if hasattr(panel, '_line_width'):
-            panel._line_width = line_width
+    if line_width is not None and hasattr(panel, '_line_width'):
+        panel._line_width = line_width
 
-    # Line style
     if line_style is not None and hasattr(panel, '_line_style'):
         panel._line_style = line_style
 
-    # Marker
     if marker is not None and hasattr(panel, '_marker'):
         panel._marker = marker
 
-    # Marker size
     if marker_size is not None and hasattr(panel, '_marker_size'):
         panel._marker_size = marker_size
 
-    # Edge color
     if edge_color is not None and hasattr(panel, '_edge_color'):
         panel._edge_color = edge_color
 
-    # Edge width
     if edge_width is not None and hasattr(panel, '_edge_width'):
         panel._edge_width = edge_width
 
-    # Hatch (bar/histogram panels)
     if hatch is not None and hasattr(panel, '_hatch'):
         panel._hatch = hatch
 
@@ -391,29 +609,66 @@ def _apply_one_series(s: dict, panel) -> None:
 
 def create_ai_import_section(global_panel, canvas,
                              artist_panels: list | None = None):
-    """Build the AI Style Import sub-section for the Profiles panel.
-
-    Returns (widget, status_html, js_output) tuple.
-    """
+    """Build the AI Style Import section for the Profiles panel."""
     import ipywidgets as widgets
 
     # --- Provider dropdown ---
     provider_dd = widgets.Dropdown(
-        options=[("Anthropic (Claude)", "anthropic"),
-                 ("OpenAI (GPT-4o)", "openai")],
-        value="anthropic",
+        options=[("OpenAI (GPT-4o)", "openai"),
+                 ("Anthropic (Claude)", "anthropic")],
+        value="openai",
         description="Provider:",
         style={"description_width": "60px"},
         layout=widgets.Layout(width="220px"),
     )
 
-    # --- API key field ---
+    # --- API key field with eye toggle ---
     key_field = widgets.Password(
         value="",
         placeholder="paste API key",
         description="API Key:",
         style={"description_width": "60px"},
-        layout=widgets.Layout(width="260px"),
+        layout=widgets.Layout(width="230px"),
+    )
+    key_field_visible = widgets.Text(
+        value="",
+        placeholder="paste API key",
+        description="API Key:",
+        style={"description_width": "60px"},
+        layout=widgets.Layout(width="230px", display="none"),
+    )
+    _key_visible = {"on": False}
+
+    def _sync_key_fields(change):
+        source = change["owner"]
+        if source is key_field:
+            key_field_visible.value = change["new"]
+        else:
+            key_field.value = change["new"]
+    key_field.observe(_sync_key_fields, names="value")
+    key_field_visible.observe(_sync_key_fields, names="value")
+
+    eye_btn = widgets.Button(
+        description="", icon="eye",
+        layout=widgets.Layout(width="30px", height="30px"),
+        tooltip="Show/hide API key",
+    )
+
+    def _toggle_eye(_btn):
+        _key_visible["on"] = not _key_visible["on"]
+        if _key_visible["on"]:
+            key_field.layout.display = "none"
+            key_field_visible.layout.display = ""
+            eye_btn.icon = "eye-slash"
+        else:
+            key_field_visible.layout.display = "none"
+            key_field.layout.display = ""
+            eye_btn.icon = "eye"
+    eye_btn.on_click(_toggle_eye)
+
+    key_box = widgets.HBox(
+        [key_field, key_field_visible, eye_btn],
+        layout=widgets.Layout(gap="2px", align_items="center"),
     )
 
     save_key_btn = widgets.Button(
@@ -470,33 +725,24 @@ def create_ai_import_section(global_panel, canvas,
         layout=widgets.Layout(width="150px"),
     )
 
-    save_name = widgets.Text(
-        value="", placeholder="profile name",
-        layout=widgets.Layout(width="140px"),
-    )
-    save_profile_btn = widgets.Button(
-        description="Save as Profile", icon="save",
-        button_style="success",
-        layout=widgets.Layout(width="130px"),
+    # Load Profile (upload .json file)
+    profile_upload = widgets.FileUpload(
+        accept=".json",
+        multiple=False,
+        description="Load Profile",
+        layout=widgets.Layout(width="220px"),
     )
 
     post_extract_box = widgets.VBox([
         widgets.HBox([download_btn],
                      layout=widgets.Layout(gap="4px")),
-        widgets.HBox([save_name, save_profile_btn],
+        widgets.HBox([profile_upload],
                      layout=widgets.Layout(gap="4px")),
     ], layout=widgets.Layout(display="none"))
 
-    # --- Upload Profile (no API call) ---
-    profile_upload = widgets.FileUpload(
-        accept=".json",
-        multiple=False,
-        description="Upload Profile",
-        layout=widgets.Layout(width="280px"),
-    )
-
-    # Shared state for the last extraction result
-    _state: dict[str, Any] = {"last_result": None}
+    # Shared state
+    _state: dict[str, Any] = {"last_result": None, "ref_b64": None,
+                               "ref_media": None}
 
     # --- Callbacks ---
     def _on_extract(_btn):
@@ -516,19 +762,54 @@ def create_ai_import_section(global_panel, canvas,
             return
 
         prov = provider_dd.value
-        status.value = "<i>Extracting style... (this may take a few seconds)</i>"
+        status.value = "<i>Pass 1: Extracting style...</i>"
         extract_btn.disabled = True
 
         try:
+            # Store encoded reference for verification pass
+            ref_b64, ref_media = _encode_image(content, suffix)
+            _state["ref_b64"] = ref_b64
+            _state["ref_media"] = ref_media
+
+            # Pass 1: extract style
             result = extract_style(content, suffix, prov, api_key)
             _state["last_result"] = result
             apply_ai_style(result, global_panel, canvas, artist_panels)
+
             n_series = len(result.get("series", []))
-            status.value = (
-                f"<span style='color:green'>"
-                f"Style applied! Detected <b>{result.get('plot_type', '?')}</b> "
-                f"with {n_series} series.</span>"
-            )
+            status.value = "<i>Pass 2: Verifying and correcting...</i>"
+
+            # Pass 2: verification — compare reference vs current figure
+            try:
+                fig = global_panel._fig
+                corrections = verify_style(
+                    ref_b64, ref_media, fig, prov, api_key)
+                if corrections:
+                    # Merge corrections into result and re-apply
+                    _merge_corrections(result, corrections)
+                    apply_ai_style(result, global_panel, canvas, artist_panels)
+                    status.value = (
+                        f"<span style='color:green'>"
+                        f"Style applied with corrections! "
+                        f"Detected <b>{result.get('plot_type', '?')}</b> "
+                        f"with {n_series} series.</span>"
+                    )
+                else:
+                    status.value = (
+                        f"<span style='color:green'>"
+                        f"Style applied! Detected "
+                        f"<b>{result.get('plot_type', '?')}</b> "
+                        f"with {n_series} series.</span>"
+                    )
+            except Exception:
+                # Verification failed — first pass result still applied
+                status.value = (
+                    f"<span style='color:green'>"
+                    f"Style applied! Detected "
+                    f"<b>{result.get('plot_type', '?')}</b> "
+                    f"with {n_series} series.</span>"
+                )
+
             post_extract_box.layout.display = ""
         except ImportError as e:
             status.value = f"<span style='color:red'>{e}</span>"
@@ -549,38 +830,14 @@ def create_ai_import_section(global_panel, canvas,
 
     download_btn.on_click(_on_download)
 
-    def _on_save_profile(_btn):
-        from ._profiles import _save_profile, _list_profiles
-
-        result = _state.get("last_result")
-        if result is None:
-            status.value = "<span style='color:#888'>No extraction result.</span>"
-            return
-        name = save_name.value.strip()
-        if not name:
-            status.value = "<span style='color:red'>Enter a profile name.</span>"
-            return
-        safe = "".join(c for c in name if c.isalnum() or c in " _-").strip()
-        if not safe:
-            status.value = "<span style='color:red'>Invalid name.</span>"
-            return
-        # Save the global portion as a standard profile
-        global_data = result.get("global", {})
-        _save_profile(safe, global_data)
-        save_name.value = ""
-        status.value = (
-            f"<span style='color:green'>Saved profile <b>{safe}</b></span>")
-
-    save_profile_btn.on_click(_on_save_profile)
-
     def _on_profile_upload(change):
         uploaded = change["new"]
         if not uploaded:
             return
         file_info = uploaded[0] if isinstance(uploaded, (list, tuple)) else uploaded
         content = file_info.get("content", b"") if isinstance(file_info, dict) else b""
-        name = file_info.get("name", "profile.json") if isinstance(file_info, dict) else "profile.json"
-
+        name = (file_info.get("name", "profile.json")
+                if isinstance(file_info, dict) else "profile.json")
         try:
             result = _load_profile_json(content)
             _state["last_result"] = result
@@ -591,7 +848,6 @@ def create_ai_import_section(global_panel, canvas,
                 f"Profile loaded from <b>{name}</b>! "
                 f"{n_series} series styles applied.</span>"
             )
-            post_extract_box.layout.display = ""
         except Exception as e:
             status.value = f"<span style='color:red'>Error loading profile: {e}</span>"
 
@@ -599,19 +855,33 @@ def create_ai_import_section(global_panel, canvas,
 
     # --- Assemble ---
     section = widgets.VBox([
-        widgets.HTML("<hr style='margin:8px 0'>"
-                     "<b style='font-size:12px'>AI Style Import</b>"),
         provider_dd,
-        widgets.HBox([key_field, save_key_btn],
+        widgets.HBox([key_box, save_key_btn],
                      layout=widgets.Layout(gap="4px", align_items="center")),
         image_upload,
         extract_btn,
         status,
         post_extract_box,
-        widgets.HTML("<hr style='margin:8px 0'>"
-                     "<b style='font-size:11px'>Upload Profile (no API call)</b>"),
-        profile_upload,
         js_output,
     ])
 
     return section
+
+
+def _merge_corrections(result: dict, corrections: dict) -> None:
+    """Merge verification corrections into the extraction result in-place."""
+    # Merge top-level keys (fig_width, fig_height, etc.)
+    for key in ("fig_width", "fig_height", "plot_type", "num_series"):
+        if key in corrections:
+            result[key] = corrections[key]
+
+    # Merge global corrections
+    if "global" in corrections:
+        result.setdefault("global", {}).update(corrections["global"])
+
+    # Merge series corrections by index
+    if "series" in corrections:
+        existing = result.get("series", [])
+        for i, s_corr in enumerate(corrections["series"]):
+            if i < len(existing):
+                existing[i].update(s_corr)
