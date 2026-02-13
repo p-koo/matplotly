@@ -155,18 +155,28 @@ FIGURE SIZE: Estimate the figure dimensions in inches.
   - Presentation slides are typically 10" wide.
   - Estimate height from the aspect ratio you observe.
 
-FONTS: Estimate point sizes by comparing text to the plot area.
-  - Title text is typically 12-18 pt. Axis labels are typically 10-14 pt.
-  - Tick labels are typically 8-12 pt. Legend text is typically 8-11 pt.
+FONTS: This is CRITICAL. Use the RELATIVE SIZE METHOD to estimate font sizes:
+  1. First, estimate tick_size by looking at the tick labels (small numbers on
+     the axes). In most scientific figures, tick labels are 8-10 pt.
+  2. Then estimate other sizes RELATIVE to tick labels:
+     - label_size (axis labels like "X axis", "Y axis") is usually 1-2 pt
+       larger than tick labels. If tick_size=9, label_size is typically 10-11.
+     - title_size is usually 1-3 pt larger than label_size. If label_size=10,
+       title_size is typically 11-13.
+     - legend_fontsize is usually equal to or 1 pt smaller than tick_size.
+       If tick_size=9, legend_fontsize is typically 8-9.
+  3. Common size combinations in scientific figures:
+     - Small/compact: tick=8, label=9, title=10, legend=8
+     - Standard: tick=9, label=10, title=12, legend=9
+     - Large/presentation: tick=12, label=14, title=16, legend=11
   - Identify the font family: serif fonts (Times, Computer Modern) have small
     strokes at letter ends; sans-serif fonts (Arial, Helvetica) do not.
 
-FONT STYLE: Check if title and axis labels are bold or italic.
-  - Most scientific plots use normal (non-bold) text. Default to false.
-  - Only set title_bold=true if the title is CLEARLY and OBVIOUSLY heavier/
-    thicker than the axis labels. If unsure, use false.
-  - Only set label_bold=true if axis labels are CLEARLY heavier than tick
-    labels. If unsure, use false.
+FONT WEIGHT (bold): Default to false for ALL font weight fields.
+  - title_bold: false (most scientific titles are NOT bold)
+  - label_bold: false (most axis labels are NOT bold)
+  - Only set to true if the text is UNMISTAKABLY heavier/thicker than
+    surrounding text. When in doubt, always use false.
 
 LABEL PADDING: Estimate spacing between labels and the axes.
   - title_pad is the gap between the title and the top of the plot (typically 6).
@@ -204,8 +214,13 @@ GRID: Look for light horizontal/vertical lines behind the data.
 
 LEGEND: Look carefully for a legend box in the plot.
   - If there is no legend at all, set legend_show=false.
-  - If there is a legend, check if it has a visible border (legend_frame).
-  - Estimate the legend font size relative to the axis labels.
+  - legend_frame: DEFAULT TO false. Most scientific figures do NOT have a
+    visible border/frame around the legend. Only set to true if you can
+    clearly see a rectangular border line drawn around the legend entries.
+    A subtle background shade does NOT count as a frame — the frame refers
+    specifically to a visible black or dark outline/border box.
+  - Estimate the legend font size relative to the tick labels (usually
+    equal to or 1 pt smaller than tick_size).
   - Identify the legend position: where is it in the plot?
     Valid positions: "upper right", "upper left", "lower left", "lower right",
     "right", "center left", "center right", "lower center", "upper center",
@@ -295,24 +310,39 @@ You are a scientific-figure style assessment agent. You are given:
 1. A REFERENCE plot image.
 2. A JSON object of extracted style parameters from that image.
 
-Your job: verify EACH parameter against the reference image. ONLY output \
-corrections for values you are HIGHLY CONFIDENT are wrong. If you are unsure \
-or the value looks approximately correct, do NOT include it. Be conservative \
-— it is better to leave a roughly-correct value than to introduce a wrong one.
-
-Output a JSON object with ONLY fields that need correction. If everything \
-looks correct, output: {}
+Your job: verify EACH parameter against the reference image. Output a JSON \
+object with ONLY fields that need correction. Use the same JSON structure as \
+the input (with "global" and optionally "series" keys). If everything looks \
+correct, output: {}
 
 IMPORTANT RULES:
-- Do NOT change font sizes unless they are clearly off by 2+ points.
-  Small differences (±1 pt) are acceptable and should not be corrected.
 - Do NOT change title_bold or label_bold to true unless the text is CLEARLY \
   and OBVIOUSLY heavier/thicker than regular weight. Most scientific plots \
   use normal (non-bold) text. Default assumption should be false.
-- Do NOT change colors unless they are clearly a different hue (not just \
-  slightly different shades).
+- Do NOT change colors unless they are clearly a different hue.
 
-CHECK THESE (most commonly wrong — focus your effort here):
+CHECK THESE CAREFULLY (most commonly wrong):
+
+FONT SIZES — Use the RELATIVE SIZE METHOD:
+  1. Look at tick labels (small numbers on axes). Estimate tick_size.
+     Most scientific figures use 8-10 pt tick labels.
+  2. Check label_size (axis labels). Should be 1-2 pt larger than tick_size.
+  3. Check title_size. Should be 1-3 pt larger than label_size.
+  4. Check legend_fontsize. Usually equal to or 1 pt smaller than tick_size.
+  5. Common combinations:
+     - Small/compact: tick=8, label=9, title=10, legend=8
+     - Standard: tick=9, label=10, title=12, legend=9
+     - Large/presentation: tick=12, label=14, title=16, legend=11
+  - If any font size looks wrong by 1+ points, correct it.
+
+LEGEND:
+  - legend_show: is there a legend visible?
+  - legend_frame: DEFAULT is false. Most scientific figures do NOT have a
+    visible border around the legend. Only set true if you can clearly see
+    a rectangular outline/border drawn around the legend. A subtle background
+    does NOT count. If the extracted value is true but you don't see an
+    obvious border box, correct it to false.
+  - legend_position: where is the legend located?
 
 TICK SPACING:
   - Read the tick labels on each axis. Count the numeric labels.
@@ -322,18 +352,13 @@ TICK SPACING:
   - For y-axis: same logic. Read the actual numbers shown.
 
 TICK DIRECTION:
-  - Do ticks point out, in, or inout? Look carefully.
+  - Do ticks point out, in, or inout? Look carefully at the axis edges.
 
 SPINES:
   - Is each spine (top, right, bottom, left) visible or hidden?
 
-LEGEND:
-  - legend_show: is there a legend?
-  - legend_position: where is it?
-  - legend_frame: does it have a visible border?
-
 GRID:
-  - Is grid_on correct?
+  - Is grid_on correct? Are there visible gridlines behind the data?
 
 Reply with ONLY a JSON object — no markdown fences, no explanation.
 """
@@ -371,11 +396,18 @@ _ANTHROPIC_MODELS = [
 ]
 
 _OPENAI_MODELS = [
+    ("GPT-5.2", "gpt-5.2"),
+    ("GPT-5.1", "gpt-5.1"),
+    ("GPT-5", "gpt-5"),
+    ("GPT-5 mini", "gpt-5-mini"),
+    ("GPT-5 nano", "gpt-5-nano"),
     ("GPT-4o", "gpt-4o"),
     ("GPT-4o mini", "gpt-4o-mini"),
     ("GPT-4.1", "gpt-4.1"),
     ("GPT-4.1 mini", "gpt-4.1-mini"),
-    ("GPT-4.1 nano", "gpt-4.1-nano"),
+    ("o4 mini", "o4-mini"),
+    ("o3", "o3"),
+    ("o3 mini", "o3-mini"),
 ]
 
 
@@ -416,7 +448,7 @@ def _call_anthropic(b64: str, media_type: str, api_key: str,
 
 def _call_openai(b64: str, media_type: str, api_key: str,
                  prompt: str = EXTRACTION_PROMPT,
-                 model: str = "gpt-4o") -> dict:
+                 model: str = "gpt-5.2") -> dict:
     """Call OpenAI API with vision."""
     try:
         import openai
@@ -427,7 +459,7 @@ def _call_openai(b64: str, media_type: str, api_key: str,
     client = openai.OpenAI(api_key=api_key)
     response = client.chat.completions.create(
         model=model,
-        max_tokens=2048,
+        max_completion_tokens=2048,
         messages=[{
             "role": "user",
             "content": [
@@ -815,6 +847,10 @@ def create_ai_import_section(global_panel, canvas,
         description="Reference image",
         layout=widgets.Layout(width="280px"),
     )
+    # Reset description after upload to remove "(N)" file count
+    def _reset_image_desc(change):
+        image_upload.description = "Reference image"
+    image_upload.observe(_reset_image_desc, names="value")
 
     # --- Extract button ---
     extract_btn = widgets.Button(
@@ -843,6 +879,10 @@ def create_ai_import_section(global_panel, canvas,
         description="Load Profile",
         layout=widgets.Layout(width="220px"),
     )
+    # Reset description after upload to remove "(N)" file count
+    def _reset_profile_desc(change):
+        profile_upload.description = "Load Profile"
+    profile_upload.observe(_reset_profile_desc, names="value")
 
     post_extract_box = widgets.VBox([
         widgets.HBox([download_btn],
