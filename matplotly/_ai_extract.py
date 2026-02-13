@@ -162,8 +162,11 @@ FONTS: Estimate point sizes by comparing text to the plot area.
     strokes at letter ends; sans-serif fonts (Arial, Helvetica) do not.
 
 FONT STYLE: Check if title and axis labels are bold or italic.
-  - If the title text appears thicker/heavier than normal, set title_bold=true.
-  - If axis label text appears thicker/heavier, set label_bold=true.
+  - Most scientific plots use normal (non-bold) text. Default to false.
+  - Only set title_bold=true if the title is CLEARLY and OBVIOUSLY heavier/
+    thicker than the axis labels. If unsure, use false.
+  - Only set label_bold=true if axis labels are CLEARLY heavier than tick
+    labels. If unsure, use false.
 
 LABEL PADDING: Estimate spacing between labels and the axes.
   - title_pad is the gap between the title and the top of the plot (typically 6).
@@ -292,58 +295,45 @@ You are a scientific-figure style assessment agent. You are given:
 1. A REFERENCE plot image.
 2. A JSON object of extracted style parameters from that image.
 
-Your job: look at the reference image and verify EACH parameter in the JSON. \
-If a value is wrong, output the corrected value. If a value is correct, do NOT \
-include it. Output a JSON object with the same schema containing ONLY the \
-fields that need correction.
+Your job: verify EACH parameter against the reference image. ONLY output \
+corrections for values you are HIGHLY CONFIDENT are wrong. If you are unsure \
+or the value looks approximately correct, do NOT include it. Be conservative \
+— it is better to leave a roughly-correct value than to introduce a wrong one.
 
-CRITICAL — check these carefully against the image:
+Output a JSON object with ONLY fields that need correction. If everything \
+looks correct, output: {}
 
-FIGURE SIZE:
-  - Does the aspect ratio match fig_width/fig_height?
-  - A 3.5×4.5 figure is portrait; a 7×4 figure is wide landscape.
+IMPORTANT RULES:
+- Do NOT change font sizes unless they are clearly off by 2+ points.
+  Small differences (±1 pt) are acceptable and should not be corrected.
+- Do NOT change title_bold or label_bold to true unless the text is CLEARLY \
+  and OBVIOUSLY heavier/thicker than regular weight. Most scientific plots \
+  use normal (non-bold) text. Default assumption should be false.
+- Do NOT change colors unless they are clearly a different hue (not just \
+  slightly different shades).
 
-TICK SPACING (most commonly wrong):
+CHECK THESE (most commonly wrong — focus your effort here):
+
+TICK SPACING:
   - Read the tick labels on each axis. Count the numeric labels.
   - For x-axis: what is the step between consecutive labels?
-    Example: labels "0, 2, 4, 6, 8" → x_tick_step should be 2.0, NOT 1.0
+    Example: labels "0, 2, 4, 6, 8" → x_tick_step should be 2.0
     Example: labels "0.0, 0.5, 1.0, 1.5" → x_tick_step should be 0.5
   - For y-axis: same logic. Read the actual numbers shown.
-  - This is the #1 most commonly wrong parameter. Double-check it.
 
-FONT SIZES:
-  - Does title_size look right relative to the plot?
-  - Does label_size (axis labels) look right?
-  - Does tick_size match the tick label text?
-  - Does legend_fontsize match the legend text?
-
-TICK MARKS:
-  - tick_direction: do ticks point out, in, or inout?
-  - tick_length and tick_width: do they match what you see?
+TICK DIRECTION:
+  - Do ticks point out, in, or inout? Look carefully.
 
 SPINES:
   - Is each spine (top, right, bottom, left) visible or hidden?
 
-GRID:
-  - Is grid_on correct? Are there grid lines?
-
 LEGEND:
   - legend_show: is there a legend?
-  - legend_position: where is it in the plot?
-  - legend_frame: does it have a border box?
-  - legend_columns: how many columns?
+  - legend_position: where is it?
+  - legend_frame: does it have a visible border?
 
-COLORS:
-  - Do the series colors match the actual data series in the image?
-  - Check alpha values.
-
-AXIS SCALE:
-  - Are x_scale/y_scale correct? (linear vs log)
-
-BOLD/ITALIC:
-  - Is the title bold? Are axis labels bold?
-
-If everything is correct, output: {}
+GRID:
+  - Is grid_on correct?
 
 Reply with ONLY a JSON object — no markdown fences, no explanation.
 """
