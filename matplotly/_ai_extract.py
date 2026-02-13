@@ -137,14 +137,6 @@ def _encode_pdf(file_bytes: bytes) -> tuple[str, str]:
     )
 
 
-def _capture_figure_png(fig) -> bytes:
-    """Render the current figure to PNG bytes for verification."""
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=150, bbox_inches="tight",
-                facecolor=fig.get_facecolor())
-    buf.seek(0)
-    return buf.read()
-
 
 # ---------------------------------------------------------------------------
 # LLM prompts
@@ -295,33 +287,63 @@ Rules:
 - Output valid JSON only — no extra text.
 """
 
-VERIFICATION_PROMPT = """\
-You are a scientific-figure style verification agent. You are given two images:
-1. IMAGE 1 (first image): The REFERENCE plot whose style we want to match.
-2. IMAGE 2 (second image): The CURRENT plot after applying extracted styles.
+ASSESSMENT_PROMPT = """\
+You are a scientific-figure style assessment agent. You are given:
+1. A REFERENCE plot image.
+2. A JSON object of extracted style parameters from that image.
 
-Compare the two images carefully and output a JSON object containing ONLY the \
-fields that need correction. If a property already matches, do NOT include it.
+Your job: look at the reference image and verify EACH parameter in the JSON. \
+If a value is wrong, output the corrected value. If a value is correct, do NOT \
+include it. Output a JSON object with the same schema containing ONLY the \
+fields that need correction.
 
-Check these specific things:
-- Figure aspect ratio / proportions
-- Font sizes: are title, axis labels, tick labels, and legend text the right size?
-- Font weight: is title or label bold when it should/shouldn't be?
-- Label padding: is spacing between labels and axes correct?
-- Tick direction: do ticks point the same way (in/out/inout)?
-- Tick length and width
-- Tick spacing: do x and y axes have the same step between major ticks?
-  Count the ticks to verify.
-- Axis scale: linear vs log matching?
-- Spine visibility: are the same spines shown/hidden?
-- Grid: is grid present/absent matching? Style and transparency?
-- Legend: position, visibility, border frame, font size, number of columns?
-- Background color
-- Series colors, line widths, marker styles, opacity
+CRITICAL — check these carefully against the image:
 
-Output format — same schema as the extraction, but include ONLY fields that \
-need to change. Omit anything that already matches. If everything matches, \
-output: {}
+FIGURE SIZE:
+  - Does the aspect ratio match fig_width/fig_height?
+  - A 3.5×4.5 figure is portrait; a 7×4 figure is wide landscape.
+
+TICK SPACING (most commonly wrong):
+  - Read the tick labels on each axis. Count the numeric labels.
+  - For x-axis: what is the step between consecutive labels?
+    Example: labels "0, 2, 4, 6, 8" → x_tick_step should be 2.0, NOT 1.0
+    Example: labels "0.0, 0.5, 1.0, 1.5" → x_tick_step should be 0.5
+  - For y-axis: same logic. Read the actual numbers shown.
+  - This is the #1 most commonly wrong parameter. Double-check it.
+
+FONT SIZES:
+  - Does title_size look right relative to the plot?
+  - Does label_size (axis labels) look right?
+  - Does tick_size match the tick label text?
+  - Does legend_fontsize match the legend text?
+
+TICK MARKS:
+  - tick_direction: do ticks point out, in, or inout?
+  - tick_length and tick_width: do they match what you see?
+
+SPINES:
+  - Is each spine (top, right, bottom, left) visible or hidden?
+
+GRID:
+  - Is grid_on correct? Are there grid lines?
+
+LEGEND:
+  - legend_show: is there a legend?
+  - legend_position: where is it in the plot?
+  - legend_frame: does it have a border box?
+  - legend_columns: how many columns?
+
+COLORS:
+  - Do the series colors match the actual data series in the image?
+  - Check alpha values.
+
+AXIS SCALE:
+  - Are x_scale/y_scale correct? (linear vs log)
+
+BOLD/ITALIC:
+  - Is the title bold? Are axis labels bold?
+
+If everything is correct, output: {}
 
 Reply with ONLY a JSON object — no markdown fences, no explanation.
 """
@@ -387,40 +409,6 @@ def _call_anthropic(b64: str, media_type: str, api_key: str,
     return _parse_json_response(message.content[0].text)
 
 
-def _call_anthropic_two_images(b64_1: str, media_1: str,
-                               b64_2: str, media_2: str,
-                               api_key: str, prompt: str) -> dict:
-    """Call Claude with two images for verification."""
-    try:
-        import anthropic
-    except ImportError:
-        _auto_install("anthropic")
-        import anthropic
-
-    client = anthropic.Anthropic(api_key=api_key)
-    message = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=2048,
-        messages=[{
-            "role": "user",
-            "content": [
-                {
-                    "type": "image",
-                    "source": {"type": "base64", "media_type": media_1,
-                               "data": b64_1},
-                },
-                {
-                    "type": "image",
-                    "source": {"type": "base64", "media_type": media_2,
-                               "data": b64_2},
-                },
-                {"type": "text", "text": prompt},
-            ],
-        }],
-    )
-    return _parse_json_response(message.content[0].text)
-
-
 def _call_openai(b64: str, media_type: str, api_key: str,
                  prompt: str = EXTRACTION_PROMPT) -> dict:
     """Call GPT-4o with vision."""
@@ -450,40 +438,6 @@ def _call_openai(b64: str, media_type: str, api_key: str,
     return _parse_json_response(response.choices[0].message.content)
 
 
-def _call_openai_two_images(b64_1: str, media_1: str,
-                            b64_2: str, media_2: str,
-                            api_key: str, prompt: str) -> dict:
-    """Call GPT-4o with two images for verification."""
-    try:
-        import openai
-    except ImportError:
-        _auto_install("openai")
-        import openai
-
-    client = openai.OpenAI(api_key=api_key)
-    response = client.chat.completions.create(
-        model="gpt-4o",
-        max_tokens=2048,
-        messages=[{
-            "role": "user",
-            "content": [
-                {
-                    "type": "image_url",
-                    "image_url": {
-                        "url": f"data:{media_1};base64,{b64_1}"},
-                },
-                {
-                    "type": "image_url",
-                    "image_url": {
-                        "url": f"data:{media_2};base64,{b64_2}"},
-                },
-                {"type": "text", "text": prompt},
-            ],
-        }],
-    )
-    return _parse_json_response(response.choices[0].message.content)
-
-
 def extract_style(image_bytes: bytes, suffix: str,
                   provider: str, api_key: str) -> dict:
     """Route to correct provider, return parsed style dict."""
@@ -500,21 +454,20 @@ def extract_style(image_bytes: bytes, suffix: str,
         raise ValueError(f"Unknown provider: {provider!r}")
 
 
-def verify_style(ref_b64: str, ref_media: str,
-                 fig, provider: str, api_key: str) -> dict:
-    """Second pass: compare reference image to current figure, return corrections."""
-    fig_png = _capture_figure_png(fig)
-    fig_b64 = base64.standard_b64encode(fig_png).decode()
-    fig_media = "image/png"
+def assess_style(ref_b64: str, ref_media: str,
+                 extracted: dict, provider: str, api_key: str) -> dict:
+    """Assessment pass: verify extracted JSON against the reference image.
+
+    Sends the reference image + the extracted JSON to the LLM and asks it
+    to check each parameter. Returns only the fields that need correction.
+    """
+    json_str = json.dumps(extracted, indent=2)
+    prompt = ASSESSMENT_PROMPT + "\n\nExtracted parameters:\n" + json_str
 
     if provider == "anthropic":
-        return _call_anthropic_two_images(
-            ref_b64, ref_media, fig_b64, fig_media,
-            api_key, VERIFICATION_PROMPT)
+        return _call_anthropic(ref_b64, ref_media, api_key, prompt=prompt)
     elif provider == "openai":
-        return _call_openai_two_images(
-            ref_b64, ref_media, fig_b64, fig_media,
-            api_key, VERIFICATION_PROMPT)
+        return _call_openai(ref_b64, ref_media, api_key, prompt=prompt)
     else:
         raise ValueError(f"Unknown provider: {provider!r}")
 
@@ -904,13 +857,12 @@ def create_ai_import_section(global_panel, canvas,
             apply_ai_style(result, global_panel, canvas, artist_panels)
 
             n_series = len(result.get("series", []))
-            status.value = "<i>Pass 2: Verifying and correcting...</i>"
+            status.value = "<i>Pass 2: Assessing parameters...</i>"
 
-            # Pass 2: verification — compare reference vs current figure
+            # Pass 2: assessment — verify extracted JSON against reference
             try:
-                fig = global_panel._fig
-                corrections = verify_style(
-                    ref_b64, ref_media, fig, prov, api_key)
+                corrections = assess_style(
+                    ref_b64, ref_media, result, prov, api_key)
                 if corrections:
                     # Merge corrections into result and re-apply
                     _merge_corrections(result, corrections)
