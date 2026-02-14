@@ -3,7 +3,7 @@
 project = "matplotly"
 copyright = "2025, Peter Koo"
 author = "Peter Koo"
-release = "0.1.0"
+release = "0.1.5"
 
 extensions = [
     "sphinx.ext.autodoc",

@@ -1,7 +1,8 @@
 """AI-powered style extraction from plot images.
 
 Supports Anthropic (Claude) and OpenAI (GPT-4o) as vision LLM providers.
-API keys are persisted in ~/.matplotly/config.json.
+API keys are read from environment variables (ANTHROPIC_API_KEY,
+OPENAI_API_KEY) — no secrets are written to disk.
 
 Two-pass extraction: first pass extracts style, second pass compares the
 modified figure against the reference and corrects discrepancies.
@@ -11,43 +12,31 @@ from __future__ import annotations
 import base64
 import json
 import io
+import os
 from pathlib import Path
 from typing import Any
 
-CONFIG_DIR = Path.home() / ".matplotly"
-CONFIG_FILE = CONFIG_DIR / "config.json"
-
 # ---------------------------------------------------------------------------
-# Config persistence
+# API key helpers
 # ---------------------------------------------------------------------------
 
-def _load_config() -> dict:
-    """Load config from disk or return empty dict."""
-    if CONFIG_FILE.exists():
-        try:
-            return json.loads(CONFIG_FILE.read_text())
-        except (json.JSONDecodeError, OSError):
-            return {}
-    return {}
-
-
-def _save_config(data: dict) -> None:
-    """Write config JSON to disk."""
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    CONFIG_FILE.write_text(json.dumps(data, indent=2))
+_ENV_KEYS = {
+    "anthropic": "ANTHROPIC_API_KEY",
+    "openai": "OPENAI_API_KEY",
+}
 
 
 def get_api_key(provider: str) -> str | None:
-    """Get stored API key for *provider* ('anthropic' or 'openai')."""
-    cfg = _load_config()
-    return cfg.get("api_keys", {}).get(provider)
+    """Get API key for *provider* from the environment."""
+    env_var = _ENV_KEYS.get(provider, "")
+    return os.environ.get(env_var) or None
 
 
 def set_api_key(provider: str, key: str) -> None:
-    """Persist API key for *provider*."""
-    cfg = _load_config()
-    cfg.setdefault("api_keys", {})[provider] = key
-    _save_config(cfg)
+    """Set API key in the current process environment (not persisted)."""
+    env_var = _ENV_KEYS.get(provider)
+    if env_var:
+        os.environ[env_var] = key
 
 
 # ---------------------------------------------------------------------------
@@ -946,14 +935,7 @@ def create_ai_import_section(global_panel, canvas,
         layout=widgets.Layout(gap="2px", align_items="center"),
     )
 
-    save_key_btn = widgets.Button(
-        description="Save Key", icon="key",
-        button_style="",
-        layout=widgets.Layout(width="90px"),
-        tooltip="Save API key to ~/.matplotly/config.json",
-    )
-
-    # Pre-fill key if saved
+    # Pre-fill key from environment variable
     def _prefill_key(*_args):
         prov = provider_dd.value
         saved = get_api_key(prov)
@@ -961,16 +943,6 @@ def create_ai_import_section(global_panel, canvas,
             key_field.value = saved
     _prefill_key()
     provider_dd.observe(lambda c: _prefill_key(), names="value")
-
-    def _on_save_key(_btn):
-        prov = provider_dd.value
-        k = key_field.value.strip()
-        if k:
-            set_api_key(prov, k)
-            status.value = "<span style='color:green'>Key saved.</span>"
-        else:
-            status.value = "<span style='color:red'>Enter a key first.</span>"
-    save_key_btn.on_click(_on_save_key)
 
     # --- Image upload ---
     image_upload = widgets.FileUpload(
@@ -1045,6 +1017,8 @@ def create_ai_import_section(global_panel, canvas,
             return
 
         prov = provider_dd.value
+        # Keep key available for the rest of this session (env var only)
+        set_api_key(prov, api_key)
         status.value = "<i>Pass 1: Extracting style...</i>"
         extract_btn.disabled = True
 
@@ -1141,8 +1115,7 @@ def create_ai_import_section(global_panel, canvas,
     section = widgets.VBox([
         widgets.HBox([provider_dd, model_dd],
                      layout=widgets.Layout(gap="4px")),
-        widgets.HBox([key_box, save_key_btn],
-                     layout=widgets.Layout(gap="4px", align_items="center")),
+        key_box,
         image_upload,
         extract_btn,
         status,

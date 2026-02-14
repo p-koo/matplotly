@@ -12,6 +12,11 @@ export reproducible Python code. Everything runs inline in your notebook.
 
    installation
    quickstart
+   editor
+   plot_types
+   ai
+   profiles
+   code_export
    api
    examples/index
 

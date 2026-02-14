@@ -39,3 +39,19 @@ The decorator calls your function, captures ``plt.gcf()``, and opens the editor.
        ax.plot([1, 2, 3], [1, 4, 9])
 
 On exit, the context manager captures the current figure and launches the editor.
+
+What happens next
+-----------------
+
+After calling ``matplotly()``, the editor appears inline in your notebook. You'll
+see:
+
+- A **toolbar** at the top with Undo, Redo, Save, Apply, and Close buttons.
+- A **sidebar** on the left with collapsible panels for global settings (fonts,
+  axes, grid, legend) and per-series controls (colors, line styles, markers).
+- A **canvas** on the right showing a live preview of your figure that updates as
+  you change settings.
+
+Edit any property in the sidebar and the canvas refreshes immediately. When you're
+done, click **Apply** to export the styling as reproducible Python code that
+replaces the current cell. See :doc:`editor` for a full walkthrough.

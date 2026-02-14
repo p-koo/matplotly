@@ -26,7 +26,7 @@ reproducible Python code. No separate GUI; everything runs inline in your notebo
 pip install matplotly[ai]
 ```
 
-This includes everything: the interactive editor plus AI-powered style extraction via Claude or GPT vision models. Requires an Anthropic or OpenAI API key for the AI features (configured in the UI).
+This includes everything: the interactive editor plus AI-powered style extraction via Claude or GPT vision models. Requires an Anthropic or OpenAI API key for the AI features (set via environment variable or entered in the UI).
 
 For a lightweight install **without** AI dependencies (`anthropic`, `openai`, `Pillow`, `PyMuPDF`):
 
@@ -99,7 +99,7 @@ The corrected styles are then applied to your figure automatically — updating 
 
 **Saving and reusing styles:** After extraction, you can download the result as a JSON profile. Load it later to apply the same style to any figure — no API call needed.
 
-**API keys:** Enter your Anthropic or OpenAI key in the UI. Keys are saved locally to `~/.matplotly/config.json` so you only need to enter them once.
+**API keys:** Set `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` as an environment variable, or paste the key directly into the editor UI. No secrets are written to disk.
 
 ## Documentation
 
